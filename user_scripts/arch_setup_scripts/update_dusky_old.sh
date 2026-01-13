@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-#  ARCH LINUX UPDATE ORCHESTRATOR (v4.1 - Hardened Bare Repo Sync)
+#  ARCH LINUX UPDATE ORCHESTRATOR (v4.3 - Interactive Recovery)
 #  Description: Manages dotfile/system updates while preserving user tweaks.
 #  Target:      Arch Linux / Hyprland / UWSM / Bash 5.0+
 #  Repo Type:   Git Bare Repository (--git-dir=~/dusky --work-tree=~)
@@ -54,7 +54,7 @@ declare -ra UPDATE_SEQUENCE=(
 #    "S | 002_battery_limiter.sh"
 #    "S | 003_pacman_config.sh"
 #    "S | 004_pacman_reflector.sh"
-    "S | 005_package_installation.sh"
+#    "S | 005_package_installation.sh"
 #    "U | 006_enabling_user_services.sh"
 #    "S | 007_openssh_setup.sh"
 #    "U | 008_changing_shell_zsh.sh"
@@ -62,7 +62,7 @@ declare -ra UPDATE_SEQUENCE=(
 #    "S | 010_warp.sh"
 #    "U | 011_paru_packages_optional.sh"
 #    "S | 012_battery_limiter_again_dusk.sh"
-    "U | 013_paru_packages.sh"
+#    "U | 013_paru_packages.sh"
 #    "S | 014_aur_packages_sudo_services.sh"
 #    "U | 015_aur_packages_user_services.sh"
 #    "S | 016_create_mount_directories.sh"
@@ -76,7 +76,7 @@ declare -ra UPDATE_SEQUENCE=(
 #    "U | 024_swww_wallpaper_matugen.sh"
 #    "U | 025_qtct_config.sh"
 #    "U | 026_waypaper_config_reset.sh"
-#    "U | 027_animation_symlink.sh"
+    "U | 027_animation_symlink.sh"
 #    "S | 028_udev_usb_notify.sh"
 #    "U | 029_terminal_default.sh"
 #    "S | 030_dusk_fstab.sh"
@@ -87,9 +87,9 @@ declare -ra UPDATE_SEQUENCE=(
 #    "S | 035_powerkey_lid_close_behaviour.sh"
 #    "S | 036_logrotate_optimization.sh"
 #    "S | 037_faillock_timeout.sh"
-    "U | 038_non_asus_laptop.sh --auto"
+#    "U | 038_non_asus_laptop.sh --auto"
 #    "U | 039_file_manager_switch.sh"
-    "U | 040_swaync_dgpu_fix.sh --disable"
+#    "U | 040_swaync_dgpu_fix.sh --disable"
 #    "S | 041_asusd_service_fix.sh"
 #    "S | 042_ftp_arch.sh"
 #    "U | 043_tldr_update.sh"
@@ -97,7 +97,7 @@ declare -ra UPDATE_SEQUENCE=(
     "U | 045_mouse_button_reverse.sh --right"
 #    "U | 046_neovim_clean.sh"
 #    "U | 047_neovim_lazy_sync.sh"
-    "U | 048_dusk_clipboard_errands_delete.sh --auto"
+#    "U | 048_dusk_clipboard_errands_delete.sh --auto"
 #    "S | 049_tty_autologin.sh"
 #    "S | 050_system_services.sh"
 #    "S | 051_initramfs_optimization.sh"
@@ -114,7 +114,7 @@ declare -ra UPDATE_SEQUENCE=(
 #    "S | 062_dns_systemd_resolve.sh"
 #    "U | 063_hyprexpo_plugin.sh"
 #    "U | 064_obsidian_pensive_vault_configure.sh"
-    "U | 065_cache_purge.sh"
+#    "U | 065_cache_purge.sh"
 #    "S | 066_arch_install_scripts_cleanup.sh"
 #    "U | 067_cursor_theme_bibata_classic_modern.sh"
 #    "S | 068_nvidia_open_source.sh"
@@ -132,6 +132,8 @@ declare -ra UPDATE_SEQUENCE=(
 #    "S | 080_btrfs_zstd_compression_stats.sh"
 #    "U | 081_key_sound_wayclick_setup.sh"
 #    "U | 082_config_bat_notify.sh --default"
+    "U | 083_set_thunar_terminal_kitty.sh"
+    "U | 084_package_removal.sh --auto"
 )
 
 # ==============================================================================
@@ -231,6 +233,9 @@ pull_updates() {
     fi
 
     GIT_CMD=( /usr/bin/git --git-dir="$DOTFILES_GIT_DIR" --work-tree="$WORK_TREE" )
+    
+    # Force untracked file output to OFF (fixes noisy logs)
+    "${GIT_CMD[@]}" config status.showUntrackedFiles no
 
     log INFO "Checking for local modifications..."
 
@@ -240,39 +245,87 @@ pull_updates() {
 
         local stash_msg="orchestrator-auto-$(date +%Y%m%d-%H%M%S)"
 
+        # --- RECOVERY MENU ---
         if ! "${GIT_CMD[@]}" stash push -m "$stash_msg"; then
-            log ERROR "Git stash failed. Aborting to protect your modifications."
-            return 1
+            log ERROR "Git stash failed. This usually indicates a corrupted git index (needs merge)."
+            echo
+            printf "%s[ACTION REQUIRED]%s Select a recovery method:\n" "$CLR_YLW" "$CLR_RST"
+            echo "  1) Abort (Safe default - stop update)"
+            echo "  2) Fix Index (Runs 'git reset' - keeps local changes, fixes errors)"
+            echo "  3) Discard Local Changes (Runs 'git reset --hard' - WARN: data loss)"
+            echo
+            
+            read -r -p "Enter choice [1-3]: " choice || choice=""
+            
+            case "$choice" in
+                2)
+                    log INFO "Resetting git index (preserving local files)..."
+                    if "${GIT_CMD[@]}" reset; then
+                        log OK "Index reset. Retrying stash..."
+                        if ! "${GIT_CMD[@]}" stash push -m "$stash_msg"; then
+                             log ERROR "Stash failed again even after reset. Aborting."
+                             return 1
+                        fi
+                    else
+                        log ERROR "Git reset failed."
+                        return 1
+                    fi
+                    ;;
+                3)
+                    log WARN "Hard resetting repository to HEAD (Discarding ALL changes)..."
+                    if "${GIT_CMD[@]}" reset --hard HEAD; then
+                        log OK "Repository forcefully cleaned. Proceeding."
+                    else
+                         log ERROR "Git hard reset failed."
+                         return 1
+                    fi
+                    ;;
+                *)
+                    log ERROR "Aborting by user request or default."
+                    return 1
+                    ;;
+            esac
         fi
+        # --- END RECOVERY MENU ---
 
-        STASH_REF="$stash_msg"
-        log OK "Changes stashed: $stash_msg"
+        if [[ -z "${STASH_REF:-}" ]]; then
+             if "${GIT_CMD[@]}" stash list | grep -q "$stash_msg"; then
+                 STASH_REF="$stash_msg"
+                 log OK "Changes stashed: $stash_msg"
+             fi
+        fi
     fi
 
     log INFO "Pulling updates from $REPO_URL ($BRANCH)..."
 
-    # Fix: Removed 2>&1 noise
-    if ! "${GIT_CMD[@]}" pull --rebase origin "$BRANCH"; then
+    local git_err
+    # Capture output of pull. If it fails, we fall back to fetch+rebase.
+    if ! git_err=$("${GIT_CMD[@]}" pull --rebase origin "$BRANCH" 2>&1); then
         log WARN "Pull failed, attempting fetch from URL directly..."
 
         if ! "${GIT_CMD[@]}" fetch "$REPO_URL" "$BRANCH"; then
             log ERROR "Network error or repository unreachable."
-            # Attempt inline recovery before returning
             if [[ -n "${STASH_REF:-}" ]]; then
                 "${GIT_CMD[@]}" stash pop --quiet 2>/dev/null && STASH_REF=""
             fi
             return 1
         fi
 
-        if ! "${GIT_CMD[@]}" rebase FETCH_HEAD; then
-            log ERROR "Rebase failed. You may have merge conflicts."
+        # CRITICAL FIX: Capture rebase error output and print to STDOUT
+        if ! git_err=$("${GIT_CMD[@]}" rebase FETCH_HEAD 2>&1); then
+            log ERROR "Rebase failed. You may have merge conflicts or untracked file errors."
+            
+            # Print the actual raw git error so it appears in the log file
+            printf "\n%s[GIT ERROR DETAILS]%s\n" "$CLR_RED" "$CLR_RST"
+            printf "%s\n" "$git_err"
+            printf "%s--------------------%s\n\n" "$CLR_RED" "$CLR_RST"
+
             log ERROR "Resolve with: git --git-dir=$DOTFILES_GIT_DIR --work-tree=$WORK_TREE status"
             
-            # FIX: Clear STASH_REF to prevent cleanup from adding chaos to conflicts
             if [[ -n "${STASH_REF:-}" ]]; then
                 log WARN "Your local changes remain stashed as: $STASH_REF"
                 log WARN "After resolving conflicts, recover with: git stash pop"
-                STASH_REF=""  # Prevent cleanup from attempting pop on conflicted tree
+                STASH_REF=""  
             fi
             return 1
         fi
@@ -290,7 +343,7 @@ pull_updates() {
             log WARN "Merge conflict during stash pop!"
             log WARN "Your changes are preserved in the stash list."
             log WARN "Resolve conflicts, then: git --git-dir=$DOTFILES_GIT_DIR --work-tree=$WORK_TREE stash drop"
-            STASH_REF=""  # Pop was attempted; cleanup shouldn't retry
+            STASH_REF=""
         fi
     fi
 

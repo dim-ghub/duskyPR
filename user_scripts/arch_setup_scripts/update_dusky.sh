@@ -233,6 +233,9 @@ pull_updates() {
     fi
 
     GIT_CMD=( /usr/bin/git --git-dir="$DOTFILES_GIT_DIR" --work-tree="$WORK_TREE" )
+    
+    # Force untracked file output to OFF (fixes noisy logs)
+    "${GIT_CMD[@]}" config status.showUntrackedFiles no
 
     log INFO "Checking for local modifications..."
 
@@ -252,7 +255,6 @@ pull_updates() {
             echo "  3) Discard Local Changes (Runs 'git reset --hard' - WARN: data loss)"
             echo
             
-            # CRITICAL FIX: Ensure failure to read (non-interactive) doesn't crash script in set -e mode
             read -r -p "Enter choice [1-3]: " choice || choice=""
             
             case "$choice" in
@@ -286,7 +288,6 @@ pull_updates() {
         fi
         # --- END RECOVERY MENU ---
 
-        # If we successfully stashed (either first try or after Option 2), set the ref
         if [[ -z "${STASH_REF:-}" ]]; then
              if "${GIT_CMD[@]}" stash list | grep -q "$stash_msg"; then
                  STASH_REF="$stash_msg"
@@ -297,8 +298,9 @@ pull_updates() {
 
     log INFO "Pulling updates from $REPO_URL ($BRANCH)..."
 
-    # Fix: Removed 2>&1 noise
-    if ! "${GIT_CMD[@]}" pull --rebase origin "$BRANCH"; then
+    local git_err
+    # Capture output of pull. If it fails, we fall back to fetch+rebase.
+    if ! git_err=$("${GIT_CMD[@]}" pull --rebase origin "$BRANCH" 2>&1); then
         log WARN "Pull failed, attempting fetch from URL directly..."
 
         if ! "${GIT_CMD[@]}" fetch "$REPO_URL" "$BRANCH"; then
@@ -309,8 +311,15 @@ pull_updates() {
             return 1
         fi
 
-        if ! "${GIT_CMD[@]}" rebase FETCH_HEAD; then
-            log ERROR "Rebase failed. You may have merge conflicts."
+        # CRITICAL FIX: Capture rebase error output and print to STDOUT
+        if ! git_err=$("${GIT_CMD[@]}" rebase FETCH_HEAD 2>&1); then
+            log ERROR "Rebase failed. You may have merge conflicts or untracked file errors."
+            
+            # Print the actual raw git error so it appears in the log file
+            printf "\n%s[GIT ERROR DETAILS]%s\n" "$CLR_RED" "$CLR_RST"
+            printf "%s\n" "$git_err"
+            printf "%s--------------------%s\n\n" "$CLR_RED" "$CLR_RST"
+
             log ERROR "Resolve with: git --git-dir=$DOTFILES_GIT_DIR --work-tree=$WORK_TREE status"
             
             if [[ -n "${STASH_REF:-}" ]]; then
