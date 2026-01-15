@@ -149,7 +149,7 @@ declare -ra UPDATE_SEQUENCE=(
 #    "U | 021_matugen_directories.sh"
 #    "U | 022_wallpapers_download.sh"
 #    "U | 023_blur_shadow_opacity.sh"
-    "U | 024_swww_wallpaper_matugen.sh"
+#    "U | 024_swww_wallpaper_matugen.sh"
 #    "U | 025_qtct_config.sh"
 #    "U | 026_waypaper_config_reset.sh"
     "U | 027_animation_symlink.sh"
@@ -211,6 +211,7 @@ declare -ra UPDATE_SEQUENCE=(
     "U | 083_set_thunar_terminal_kitty.sh"
     "U | 084_package_removal.sh --auto"
     "U | 085_wayclick_reset.sh"
+    "U | 086_generate_colorfiles_for_current_wallpaer.sh"
 )
 
 # ------------------------------------------------------------------------------

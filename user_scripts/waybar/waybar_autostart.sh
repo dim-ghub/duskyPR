@@ -84,4 +84,8 @@ fi
 # --- 7. Launch ---
 log_info "Starting ${APP_NAME}..."
 
-exec "${APP_NAME}" "$@" 9>&-
+"${APP_NAME}" "$@" >/dev/null 2>&1 9>&- &
+disown
+
+log_success "Waybar detached successfully."
+exit 0
