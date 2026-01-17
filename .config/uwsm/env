@@ -8,7 +8,7 @@
 # -----------------------------------------------------------------------------
 # 1. SYSTEM LOCALE & KERNEL TUNING
 # -----------------------------------------------------------------------------
-export LANG=en_US.UTF-8
+#export LANG=en_US.UTF-8
 
 # CPU Threads: Dynamically set based on available cores.
 # Useful for compilation and heavy parallel tasks.
