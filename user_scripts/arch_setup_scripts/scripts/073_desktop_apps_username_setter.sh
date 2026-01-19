@@ -73,6 +73,7 @@ readonly TARGET_FILES=(
     "matugen.desktop"
     "monitor_tui.desktop"
     "mouse_button_reverse.desktop"
+    "music_recognition.desktop"
     "new_github_repo.desktop"
     "ollama_terminal.desktop"
     "opacity_blur_shadow.desktop"
