@@ -10,6 +10,16 @@
 set -u
 set -o pipefail
 
+LOCK_FILE="/tmp/rofi-wallpaper-selector-lock"
+
+# Lock check
+# Open the lock file. If it's busy (spamming), exit immediately.
+exec 201>"$LOCK_FILE"
+if ! flock -n 201; then
+	notify-send -a "Warning" "Please wait. Script is running." -u low -t 1000
+    exit 1
+fi
+
 # --- CONFIGURATION ---
 readonly WALLPAPER_DIR="${HOME}/Pictures/wallpapers"
 readonly CACHE_DIR="${HOME}/.cache/rofi-wallpaper-thumbs"
@@ -112,6 +122,8 @@ refresh_cache() {
     \) -print0 | sort -z)
     
     ( cleanup_orphans ) & disown
+
+    flock -u 201
 }
 
 get_matugen_flags() {
