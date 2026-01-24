@@ -204,6 +204,15 @@ ensure_swww_running() {
     done
 }
 
+ensure_swaync_running() {
+    pgrep -x swaync >/dev/null && return 0
+
+    log "Starting swaync (required for matugen hooks)..."
+    swaync &
+    disown
+    sleep 1
+}
+
 apply_random_wallpaper() {
     local target_wallpaper
 
@@ -252,6 +261,8 @@ regenerate_current() {
 generate_colors() {
     local img="$1"
 
+    ensure_swaync_running
+
     read_state
 
     log "Matugen: Mode=[${THEME_MODE}] Type=[${MATUGEN_TYPE}] Contrast=[${MATUGEN_CONTRAST}]"
@@ -297,7 +308,7 @@ EOF
 }
 
 cmd_set() {
-    local do_refresh=0 mode_changed=0
+    local do_refresh=0 mode_changed=0 force_random=0
 
     while (( $# > 0 )); do
         case "$1" in
@@ -308,6 +319,8 @@ cmd_set() {
                 if [[ "$THEME_MODE" != "$2" ]]; then
                     update_state_key "THEME_MODE" "$2"
                     mode_changed=1
+                else
+                    force_random=1
                 fi
                 shift 2
                 ;;
@@ -339,7 +352,7 @@ cmd_set() {
 
     read_state
 
-    if (( mode_changed )); then
+    if (( mode_changed || force_random )); then
         move_directories "$THEME_MODE"
         apply_random_wallpaper
     elif (( do_refresh )); then

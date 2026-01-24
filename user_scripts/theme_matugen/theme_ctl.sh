@@ -204,6 +204,15 @@ ensure_swww_running() {
     done
 }
 
+ensure_swaync_running() {
+    pgrep -x swaync >/dev/null && return 0
+
+    log "Starting swaync (required for matugen hooks)..."
+    swaync &
+    disown
+    sleep 1
+}
+
 apply_random_wallpaper() {
     local target_wallpaper
 
@@ -251,6 +260,8 @@ regenerate_current() {
 
 generate_colors() {
     local img="$1"
+
+    ensure_swaync_running
 
     read_state
 
