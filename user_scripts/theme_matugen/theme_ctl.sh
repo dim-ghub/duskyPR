@@ -258,11 +258,19 @@ ensure_swaync_running() {
 select_random_wallpaper() {
     (
         shopt -s nullglob globstar
+        # Try active theme directory first (recursive)
         local -a wallpapers=("${ACTIVE_THEME_DIR}"/**/*.{jpg,jpeg,png,webp,gif})
+
+        # FALLBACK: If active theme is empty, check the parent root (flat search)
+        if (( ${#wallpapers[@]} == 0 )); then
+            wallpapers=("${WALLPAPER_ROOT}"/*.{jpg,jpeg,png,webp,gif})
+        fi
+
         (( ${#wallpapers[@]} > 0 )) || exit 1
         printf '%s' "${wallpapers[RANDOM % ${#wallpapers[@]}]}"
     )
 }
+
 
 apply_random_wallpaper() {
     local wallpaper
