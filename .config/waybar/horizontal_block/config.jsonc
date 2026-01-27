@@ -20,7 +20,8 @@
     "custom/inhibit-suspend",
     "custom/updates",
     "custom/notification",
-    "custom/theme-toggle"
+    "custom/theme-toggle",
+    "custom/net-speed"
   //  "tray"
   ],
 
@@ -170,6 +171,14 @@
     "on-click": "playerctl play-pause",
     "on-scroll-up": "playerctl next",
     "on-scroll-down": "playerctl previous"
+  },
+
+  "custom/net-speed": {
+    "exec": "$HOME/user_scripts/waybar/network/network_meter_calling.sh --horizontal",
+    "return-type": "json",
+    "format": "{}",
+    "interval": 1,
+    "tooltip": true
   },
 
   "network": {

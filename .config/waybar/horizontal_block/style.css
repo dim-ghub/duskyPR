@@ -321,6 +321,24 @@ window#waybar > box {
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
+   CUSTOM NET SPEED
+   ───────────────────────────────────────────────────────────────────────────── */
+
+#custom-net-speed {
+  padding: 0px 12px 0px 8px;
+  margin: 6px 8px;
+  border-radius: 10px;
+  background-color: alpha(@surface_container, 0.6);
+  color: @tertiary;
+  font-size: 12px;
+  transition: all 0.2s ease-in-out;
+}
+
+#custom-net-speed:hover {
+  background-color: alpha(@surface_container_high, 0.9);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────────
    NETWORK
    ───────────────────────────────────────────────────────────────────────────── */
 
