@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #══════════════════════════════════════════════════════════════════════════════
-# HyprMonitorWizard v7.4.3 — Fix Save Logic (Restored v5.6 Robustness)
+# HyprMonitorWizard v7.4.4 — Fix misc block saving (restored bash logic)
 # A robust, strictly typed monitor configuration tool for Hyprland.
 #══════════════════════════════════════════════════════════════════════════════
 set -euo pipefail
@@ -8,7 +8,7 @@ set -euo pipefail
 #───────────────────────────────────────────────────────────────────────────────
 # CONSTANTS & PATHS
 #───────────────────────────────────────────────────────────────────────────────
-readonly VERSION="7.4.3"
+readonly VERSION="7.4.4"
 readonly CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/hypr/edit_here"
 # Backups stored in volatile /tmp (cleared on reboot)
 readonly BACKUP_DIR="/tmp/hypr-wizard-backups"
@@ -180,34 +180,44 @@ save_monitor_rule() {
     mv -- "$tmp" "$CONFIG_FILE"
     ok "Configuration saved."
 }
-# ══════════════════════════════════════════════════════════════════════════════
 
+# ══════════════════════════════════════════════════════════════════════════════
+# FIXED: RESTORED BASH-BASED MISC SAVE (From v5.6)
+# ══════════════════════════════════════════════════════════════════════════════
 save_misc_option() {
     local option="$1" value="$2"
     create_backup
-    make_temp
 
-    # Robust block parsing with awk
-    awk -v opt="$option" -v val="$value" '
-    BEGIN { in_misc=0; found=0; block_exists=0 }
-    /^[[:space:]]*misc[[:space:]]*\{/ { in_misc=1; block_exists=1; print; next }
-    in_misc && /^[[:space:]]*\}/ {
-        if (!found) printf "    %s = %s\n", opt, val
-        in_misc=0; print; next
-    }
-    in_misc && $0 ~ "^[[:space:]]*#?[[:space:]]*" opt "[[:space:]]*=" {
-        printf "    %s = %s\n", opt, val; found=1; next
-    }
-    { print }
-    END {
-        if (!block_exists) printf "\n# Global Settings\nmisc {\n    %s = %s\n}\n", opt, val
-    }
-    ' "$CONFIG_FILE" > "$TEMP_FILE"
+    local tmp in_misc=0 found=0 line
+    tmp=$(mktemp) || die "Filesystem error: cannot create temp file"
 
-    mv -- "$TEMP_FILE" "$CONFIG_FILE"
-    TEMP_FILE=""
+    if grep -q "^[[:space:]]*misc[[:space:]]*{" "$CONFIG_FILE" 2>/dev/null; then
+        while IFS= read -r line || [[ -n "$line" ]]; do
+            if [[ "$line" =~ ^[[:space:]]*misc[[:space:]]*\{ ]]; then
+                in_misc=1
+                printf '%s\n' "$line"
+            elif (( in_misc )) && [[ "$line" =~ ^[[:space:]]*\} ]]; then
+                if (( !found )); then
+                    printf '    %s = %s\n' "$option" "$value"
+                fi
+                in_misc=0
+                printf '%s\n' "$line"
+            elif (( in_misc )) && [[ "$line" =~ ^[[:space:]]*#?[[:space:]]*${option}[[:space:]]*= ]]; then
+                printf '    %s = %s\n' "$option" "$value"
+                found=1
+            else
+                printf '%s\n' "$line"
+            fi
+        done < "$CONFIG_FILE" > "$tmp"
+    else
+        cat -- "$CONFIG_FILE" > "$tmp"
+        printf '\n# Global Settings\nmisc {\n    %s = %s\n}\n' "$option" "$value" >> "$tmp"
+    fi
+
+    mv -- "$tmp" "$CONFIG_FILE"
     ok "Global setting saved: misc:$option = $value"
 }
+# ══════════════════════════════════════════════════════════════════════════════
 
 #───────────────────────────────────────────────────────────────────────────────
 # UI COMPONENTS
