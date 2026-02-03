@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 # -----------------------------------------------------------------------------
-# Dusky TUI Engine - Hypridle Edition (v3.0-Bulletproof)
+# Dusky TUI Engine - Hypridle Edition (v3.2-Consistent)
 # -----------------------------------------------------------------------------
 # Target: Arch Linux / Hyprland / UWSM / Hypridle
 # Description: Specialized TUI for managing Hypridle listeners.
-#              v3.0 Changes:
-#              - Implements "Safety Net" logic for systemd start-limit-hit.
-#              - Aggressively resets failed states before operations.
-#              - Falls back to manual binary launch if systemd refuses to start.
+#              v3.2 Changes:
+#              - UI Dimensions synced with Master Template v2.6.2 (Wider/Taller).
+#              - Preserves v3.1 "Bulletproof" systemd logic.
 # -----------------------------------------------------------------------------
 
 set -euo pipefail
@@ -20,28 +19,28 @@ export LC_NUMERIC=C
 # =============================================================================
 
 readonly CONFIG_FILE="${HOME}/.config/hypr/hypridle.conf"
-readonly APP_TITLE="Hypridle Master"
-readonly APP_VERSION="v3.0"
+readonly APP_TITLE="Dusky Hypridle"
+readonly APP_VERSION="v3.2"
 
-# Dimensions
-declare -ri MAX_DISPLAY_ROWS=10
-declare -ri BOX_INNER_WIDTH=70
+# Dimensions (Synced with Template v2.6.2)
+declare -ri MAX_DISPLAY_ROWS=14      # Increased from 10 to 14
+declare -ri BOX_INNER_WIDTH=76       # Increased from 70 to 76
 declare -ri ITEM_START_ROW=5
-declare -ri ITEM_PADDING=30
-declare -ri ADJUST_THRESHOLD=35
+declare -ri ADJUST_THRESHOLD=40      # Increased from 35 to 40
+declare -ri ITEM_PADDING=32          # Increased from 30 to 32
 
-readonly -a TABS=("Warnings" "Power States")
+readonly -a TABS=("Power States" "Warnings")
 
 # Item Registration
 register_items() {
-    # --- Tab 0: Annoyances ---
-    register 0 "1. Kbd Backlight (s)" 'timeout|int|listener:1|10|3600|10'  "140"
-    register 0 "2. Screen Dim (s)"    'timeout|int|listener:2|10|3600|10'  "150"
+    # --- Tab 0: Power States (The Important Stuff) ---
+    register 0 "1. Auto Lock (s)"     'timeout|int|listener:3|30|7200|30'  "300"
+    register 0 "2. Screen Off (s)"    'timeout|int|listener:4|30|7200|30'  "330"
+    register 0 "3. Suspend (s)"       'timeout|int|listener:5|60|14400|60' "600"
 
-    # --- Tab 1: Power States ---
-    register 1 "3. Auto Lock (s)"     'timeout|int|listener:3|30|7200|30'  "300"
-    register 1 "4. Screen Off (s)"    'timeout|int|listener:4|30|7200|30'  "330"
-    register 1 "5. Suspend (s)"       'timeout|int|listener:5|60|14400|60' "600"
+    # --- Tab 1: Warnings (The Minor Stuff) ---
+    register 1 "4. Kbd Backlight (s)" 'timeout|int|listener:1|10|3600|10'  "140"
+    register 1 "5. Screen Dim (s)"    'timeout|int|listener:2|10|3600|10'  "150"
 }
 
 # =============================================================================
