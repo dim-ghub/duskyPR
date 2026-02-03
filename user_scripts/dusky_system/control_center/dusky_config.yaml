@@ -1,4 +1,94 @@
 pages:
+- id: home
+  title: Home
+  icon: user-home-symbolic
+  layout:
+  - type: grid_section
+    properties:
+      title: Quick Actions
+    items:
+    - type: button
+      properties:
+        title: System Updates
+        icon: system-software-update-symbolic
+        style: suggested
+      on_press:
+        type: exec
+        command: kitty --class update_dusky.sh --title "System Updater" --hold sh -c "$HOME/user_scripts/update_dusky/update_dusky.sh"
+        terminal: false
+    - type: button
+      properties:
+        title: Wi-Fi
+        icon: network-wireless-symbolic
+        # SMART ICON EXAMPLE:
+        # icon:
+        #   type: exec
+        #   command: "$HOME/scripts/check_wifi_icon.sh"
+        #   interval: 5
+      on_press:
+        type: exec
+        command: kitty --class wifitui --title "Wi-Fi Manager" --hold sh -c "wifitui"
+        terminal: false
+    - type: toggle_card
+      properties:
+        title: Dark Mode
+        icon: weather-clear-night-symbolic
+        key: dusky_theme/state
+        key_inverse: true
+        save_as_int: true
+      on_toggle:
+        enabled:
+          type: exec
+          command: $HOME/user_scripts/theme_matugen/theme_ctl.sh set --mode dark
+          terminal: false
+        disabled:
+          type: exec
+          command: $HOME/user_scripts/theme_matugen/theme_ctl.sh set --mode light
+          terminal: false
+    - type: button
+      properties:
+        title: Power Menu
+        icon: system-log-out-symbolic
+        style: destructive
+      on_press:
+        type: exec
+        command: $HOME/user_scripts/wlogout/wlogout_scale.sh
+        terminal: false
+    - type: button
+      properties:
+        title: Reload
+        icon: view-refresh-symbolic
+      on_press:
+        type: exec
+        command: hyprctl reload
+        terminal: false
+    - type: button
+      properties:
+        title: Files
+        icon: system-file-manager-symbolic
+      on_press:
+        type: exec
+        command: thunar
+        terminal: false
+  - type: section
+    properties:
+      title: Live System Status
+    items:
+    - type: label
+      properties:
+        title: Kernel
+        interval: 10   # Updates every 10 seconds
+      value:
+        type: system
+        key: kernel_version
+    - type: label
+      properties:
+        title: Memory Used
+        interval: 5    # Updates every 5 seconds
+      value:
+        type: exec
+        command: free -h | awk '/^Mem:/ {print $3}'
+
 - id: system
   title: System
   icon: computer-symbolic
@@ -14,6 +104,7 @@ pages:
         title: Power Menu
         description: Shutdown, Reboot, Hibernate (Wlogout)
         icon: system-log-out-symbolic
+        style: destructive
       on_press:
         type: exec
         command: $HOME/user_scripts/wlogout/wlogout_scale.sh
@@ -46,6 +137,7 @@ pages:
         title: System Updater
         description: Update packages and Dusky configurations
         icon: system-software-update-symbolic
+        style: suggested
       on_press:
         type: exec
         command: kitty --class update_dusky.sh --title "System Updater" --hold sh
@@ -121,6 +213,7 @@ pages:
         title: 'Step 1: Deploy Dotfiles'
         description: Force sync with Git (Overwrites local configs)
         icon: folder-download-symbolic
+        style: destructive
       on_press:
         type: exec
         command: kitty --class deploy_dotfiles.sh --hold sh -c $HOME/user_scripts/arch_setup_scripts/deploy_dotfiles.sh
@@ -130,6 +223,7 @@ pages:
         title: 'Step 2: Orchestra'
         description: Full system re-setup (Takes 5-10 mins)
         icon: process-working-symbolic
+        style: destructive
       on_press:
         type: exec
         command: kitty --class ORCHESTRA.sh --hold sh -c $HOME/user_scripts/arch_setup_scripts/ORCHESTRA.sh
@@ -352,15 +446,6 @@ pages:
       icon: ''
       description: ''
     items:
-#    - type: button
-#      properties:
-#        title: Mouse Handedness
-#        description: Toggle Left/Right handed mode
-#        icon: input-mouse-symbolic
-#      on_press:
-#        type: exec
-#        command: kitty --class mouse_button_reverse.sh --hold sh -c $HOME/user_scripts/desktop_apps/mouse_button_reverse.sh
-#        terminal: false
     - type: toggle
       properties:
         title: Left-Handed Mouse
@@ -395,17 +480,6 @@ pages:
         type: exec
         command: $HOME/user_scripts/sliders/brightness_slider.sh
         terminal: false
-#    - type: slider
-#      properties:
-#        title: Brightness
-#        description: Set screen brightness percentage
-#        icon: display-brightness-symbolic
-#        min: 1
-#        max: 100
-#        step: 1
-#      on_change:
-#        type: exec
-#        command: brightnessctl s {value}%
     - type: button
       properties:
         title: Night Light

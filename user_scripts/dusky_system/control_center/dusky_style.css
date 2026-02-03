@@ -1,0 +1,203 @@
+/* ─────────────────────────────────────────────────────────────────────────
+   SIDEBAR (MODERN PILL DESIGN)
+   ───────────────────────────────────────────────────────────────────────── */
+.sidebar-container {
+    background-color: alpha(@card_bg_color, 0.5);
+}
+
+.sidebar-header {
+    background: transparent;
+    border-bottom: 1px solid alpha(@borders, 0.3);
+    padding: 8px 0;
+}
+
+.sidebar-header-icon {
+    -gtk-icon-size: 18px;
+    color: @accent_color;
+}
+
+.sidebar-listbox {
+    background: transparent;
+    padding: 12px;
+}
+
+.sidebar-row {
+    border-radius: 99px;
+    padding: 10px 16px;
+    margin-bottom: 4px;
+    /* OPTIMIZED: specific transitions instead of 'all' to save GPU resources */
+    transition: background-color 150ms ease, box-shadow 150ms ease, color 150ms ease;
+    background: transparent;
+    border: 1px solid transparent;
+}
+
+.sidebar-row:hover:not(:selected) {
+    background-color: alpha(@accent_bg_color, 0.15);
+    box-shadow: inset 0 0 0 1px alpha(@accent_bg_color, 0.4);
+    color: @accent_color;
+}
+
+.sidebar-row:selected {
+    background-color: @accent_bg_color;
+    color: @accent_fg_color;
+    box-shadow: 0 4px 12px alpha(@accent_bg_color, 0.3);
+    font-weight: 700;
+}
+
+.sidebar-row:selected .sidebar-row-label,
+.sidebar-row:selected .sidebar-row-icon,
+.sidebar-row:selected .sidebar-row-chevron {
+    color: @accent_fg_color;
+}
+
+.sidebar-row-icon {
+    -gtk-icon-size: 20px;
+    min-width: 20px;
+    color: @accent_color;
+    margin-right: 12px;
+}
+
+.sidebar-row-label {
+    font-size: 0.95rem;
+}
+
+.sidebar-row-chevron {
+    opacity: 0;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   CONTENT AREA
+   ───────────────────────────────────────────────────────────────────────── */
+.content-header {
+    background: transparent;
+}
+
+.content-title {
+    font-weight: 800;
+    font-size: 1.2rem;
+    opacity: 0.9;
+}
+
+preferencesgroup > box > label.title {
+    font-weight: 800;
+    font-size: 0.8rem;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: alpha(@fg_color, 0.5);
+    margin-bottom: 12px;
+    margin-top: 12px;
+}
+
+row.action-row {
+    border-radius: 12px;
+    margin: 4px 0;
+    padding: 6px 10px;
+    transition: background-color 150ms ease, border-color 150ms ease;
+    background-color: alpha(@card_bg_color, 0.4);
+    border: 1px solid alpha(@borders, 0.5);
+}
+
+row.action-row:hover {
+    background-color: alpha(@card_bg_color, 0.8);
+    border-color: alpha(@borders, 0.8);
+}
+
+.action-row-prefix-icon {
+    -gtk-icon-size: 24px;
+    min-width: 38px;
+    min-height: 38px;
+    padding: 7px;
+    border-radius: 10px;
+    background: alpha(@accent_bg_color, 0.15);
+    color: @accent_color;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   BUTTONS & BADGES
+   ───────────────────────────────────────────────────────────────────────── */
+.run-btn {
+    border-radius: 8px;
+    padding: 6px 18px;
+    font-weight: 700;
+    font-size: 0.9rem;
+}
+
+.run-btn.suggested-action {
+    background-color: alpha(@accent_bg_color, 0.15);
+    color: @accent_color;
+    border: 1px solid alpha(@accent_bg_color, 0.3);
+}
+
+.run-btn.suggested-action:hover {
+    background-color: @accent_bg_color;
+    color: @accent_fg_color;
+}
+
+.run-btn.destructive-action {
+    background-color: alpha(#ff5555, 0.15);
+    color: #ff5555;
+    border: 1px solid alpha(#ff5555, 0.3);
+}
+
+.run-btn.destructive-action:hover {
+    background-color: #ff5555;
+    color: white;
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   HERO DASHBOARD CARDS
+   ───────────────────────────────────────────────────────────────────────── */
+.hero-card {
+    background-color: alpha(@card_bg_color, 0.5);
+    border: 1px solid alpha(@borders, 0.5);
+    border-radius: 20px;
+    padding: 20px 10px;
+    transition: background-color 200ms ease, box-shadow 200ms ease, border-color 200ms ease;
+    min-width: 140px;
+    min-height: 120px;
+}
+
+.hero-card:hover {
+    background-color: alpha(@card_bg_color, 0.9);
+    box-shadow: 0 8px 16px rgba(0,0,0,0.1);
+    border-color: @accent_bg_color;
+}
+
+.hero-card:active {
+    box-shadow: none;
+}
+
+.hero-icon {
+    color: @accent_color;
+    margin-bottom: 12px;
+}
+
+.hero-title {
+    font-weight: 700;
+    font-size: 0.95rem;
+    color: @header_fg_color;
+}
+
+.hero-subtitle {
+    font-weight: 500;
+    font-size: 0.8rem;
+    color: alpha(@fg_color, 0.6);
+}
+
+/* ─────────────────────────────────────────────────────────────────────────
+   TOGGLE CARDS (Active State)
+   ───────────────────────────────────────────────────────────────────────── */
+.hero-card.toggle-active {
+    background-color: @accent_bg_color;
+    border-color: @accent_bg_color;
+}
+
+.hero-card.toggle-active .hero-title,
+.hero-card.toggle-active .hero-icon,
+.hero-card.toggle-active .hero-subtitle {
+    color: @accent_fg_color;
+}
+
+.hero-card.toggle-active:hover {
+    background-color: alpha(@accent_bg_color, 0.9);
+}
