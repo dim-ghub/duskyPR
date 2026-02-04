@@ -10,6 +10,7 @@ Forensic Improvements (v2):
 - Type Safety: Strict TypedDict with NotRequired and StrEnum validation.
 - Resource Safety: CSS provider lifecycle is fully guarded against leaks.
 - UX: Hot reload preserves the currently selected page index.
+- Fix: Search results now correctly render Grid/Toggle cards as List rows.
 """
 from __future__ import annotations
 
@@ -1068,6 +1069,14 @@ class DuskyControlCenter(Adw.Application):
                     return rows.ButtonRow(props, item.get("on_press"), ctx)
                 case ItemType.TOGGLE:
                     return rows.ToggleRow(props, item.get("on_toggle"), ctx)
+                
+                # --- FIX: Render Grid/Toggle cards as rows in List views (Search) ---
+                case ItemType.GRID_CARD:
+                    return rows.ButtonRow(props, item.get("on_press"), ctx)
+                case ItemType.TOGGLE_CARD:
+                    return rows.ToggleRow(props, item.get("on_toggle"), ctx)
+                # --------------------------------------------------------------------
+
                 case ItemType.LABEL:
                     return rows.LabelRow(props, item.get("value"), ctx)
                 case ItemType.SLIDER:
