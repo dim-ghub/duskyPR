@@ -469,8 +469,7 @@ class DuskyControlCenter(Adw.Application):
         """Construct and present the main application window."""
         self._window = Adw.Window(application=self, title=APP_TITLE)
         self._window.set_default_size(WINDOW_DEFAULT_WIDTH, WINDOW_DEFAULT_HEIGHT)
-        
-        # DAEMON LOGIC: Intercept close request to HIDE instead of destroy
+        self._window.set_size_request(200, 600)  # (Min Width, Min Height)
         self._window.connect("close-request", self._on_close_request)
 
         # Keyboard event handling
@@ -1129,6 +1128,8 @@ class DuskyControlCenter(Adw.Application):
         flow.set_selection_mode(Gtk.SelectionMode.NONE)
         flow.set_column_spacing(12)
         flow.set_row_spacing(12)
+        flow.set_min_children_per_line(2)
+        flow.set_max_children_per_line(3)
 
         for item in section.get("items", []):
             item_type = item.get("type", "")
