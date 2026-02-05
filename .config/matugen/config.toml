@@ -89,10 +89,10 @@ pkill -SIGUSR1 kitty || true
 input_path = '~/.config/matugen/templates/opencode-colors.json'
 output_path = '~/.config/opencode/generated/opencode.json'
 
-[templates.alacritty]
-input_path  = '~/.config/matugen/templates/alacritty.toml'
-output_path = '~/.config/matugen/generated/alacritty-colors.toml'
-post_hook   = 'ln -nfs $HOME/.config/matugen/generated/alacritty-colors.toml $HOME/.config/alacritty/alacritty-colors.toml'
+# [templates.alacritty]
+# input_path  = '~/.config/matugen/templates/alacritty.toml'
+# output_path = '~/.config/matugen/generated/alacritty-colors.toml'
+# post_hook   = 'ln -nfs $HOME/.config/matugen/generated/alacritty-colors.toml $HOME/.config/alacritty/alacritty-colors.toml'
 
 [templates.neovim]
 input_path  = '~/.config/matugen/templates/neovim/template.lua'
