@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 #==============================================================================
-# FZF Clipboard Manager with Live Image Preview
-# For Arch Linux / Hyprland
+# FZF CLIPBOARD MANAGER
+# Role: Arch Linux / Hyprland / UWSM Clipboard Utility
+# Description: High-performance, secure clipboard manager with image previews
+# Dependencies: fzf, cliphist, wl-copy, (optional: chafa, bat, kitty)
+#==============================================================================
+# NOTE: `set -o errexit` is intentionally OMITTED. Functions rely on
+# `return 1` for control flow (cache miss, non-image entry, etc.).
 #==============================================================================
 
 set -o nounset
@@ -14,33 +19,51 @@ shopt -s nullglob extglob
 readonly XDG_DATA_HOME="${XDG_DATA_HOME:-$HOME/.local/share}"
 readonly XDG_CACHE_HOME="${XDG_CACHE_HOME:-$HOME/.cache}"
 
-# --- UWSM / PERSISTENCE INTEGRATION ---
-# COMPATIBILITY RESTORED: Uses 'eval' to correctly expand variables (like
-# ${XDG_RUNTIME_DIR}) found in the uwsm/env file.
-if [[ -z "${CLIPHIST_DB_PATH:-}" ]] && [[ -f "$HOME/.config/uwsm/env" ]]; then
-    # Extract only the active export line for the DB path
-    db_config=$(grep -E '^export CLIPHIST_DB_PATH=' "$HOME/.config/uwsm/env" || true)
-    if [[ -n "$db_config" ]]; then
-        eval "$db_config"
+# --- UWSM / Persistence Integration ---
+# Robustly parse ~/.config/uwsm/env to find CLIPHIST_DB_PATH
+if [[ -z "${CLIPHIST_DB_PATH:-}" ]]; then
+    _uwsm_env="$HOME/.config/uwsm/env"
+    if [[ -f "$_uwsm_env" ]]; then
+        while IFS= read -r _raw_line; do
+            # Match: export CLIPHIST_DB_PATH=...
+            if [[ "$_raw_line" == "export CLIPHIST_DB_PATH="* ]]; then
+                _raw_val="${_raw_line#export CLIPHIST_DB_PATH=}"
+                # Strip surrounding quotes
+                if [[ "$_raw_val" =~ ^\"(.*)\"$ || "$_raw_val" =~ ^\'(.*)\'$ ]]; then
+                    _raw_val="${BASH_REMATCH[1]}"
+                fi
+                # Expand common XDG variables securely (no eval)
+                _raw_val="${_raw_val//\$\{XDG_RUNTIME_DIR\}/${XDG_RUNTIME_DIR:-}}"
+                _raw_val="${_raw_val//\$XDG_RUNTIME_DIR/${XDG_RUNTIME_DIR:-}}"
+                _raw_val="${_raw_val//\$\{HOME\}/${HOME}}"
+                _raw_val="${_raw_val//\$HOME/${HOME}}"
+                export CLIPHIST_DB_PATH="$_raw_val"
+                break
+            fi
+        done < "$_uwsm_env"
     fi
+    unset _uwsm_env _raw_line _raw_val
 fi
 
-# Compatible with original rofi script
 readonly PINS_DIR="$XDG_DATA_HOME/rofi-cliphist/pins"
 readonly CACHE_DIR="$XDG_CACHE_HOME/rofi-cliphist/images"
 
-# Display
-readonly MAX_PREVIEW_LEN=60
-
-# Separator (Unit Separator ASCII 0x1F - won't appear in normal text)
+# Separator (Unit Separator ASCII 0x1F)
 readonly SEP=$'\x1f'
 
-# Icons - Using emoji for universal compatibility
+# Icons
 readonly ICON_PIN="📌"
 readonly ICON_IMG="📸"
 
 # Self reference
 readonly SELF="$(realpath "${BASH_SOURCE[0]}")"
+
+# Hash command detection (done once)
+if command -v b2sum &>/dev/null; then
+    readonly _HASH_CMD=b2sum
+else
+    readonly _HASH_CMD=md5sum
+fi
 
 #==============================================================================
 # HELPERS
@@ -54,16 +77,16 @@ notify() {
 }
 
 check_deps() {
-    local missing=()
+    local cmd missing=()
     for cmd in fzf cliphist wl-copy; do
         command -v "$cmd" &>/dev/null || missing+=("$cmd")
     done
     if ((${#missing[@]})); then
-        notify "Missing: ${missing[*]}\n\nInstall:\nsudo pacman -S fzf wl-clipboard\nparu -S cliphist" "critical"
+        notify "Missing: ${missing[*]}\nInstall: sudo pacman -S fzf wl-clipboard cliphist" "critical"
         exit 1
     fi
     
-    # Warn about optional deps (once)
+    # Warn about optional deps once
     local warn_flag="$CACHE_DIR/.warned"
     if [[ ! -f "$warn_flag" ]]; then
         mkdir -p "$CACHE_DIR"
@@ -76,111 +99,69 @@ check_deps() {
 }
 
 setup_dirs() {
-    mkdir -p "$PINS_DIR" "$CACHE_DIR" 2>/dev/null
-    chmod 700 "$PINS_DIR" "$CACHE_DIR" 2>/dev/null
+    if [[ ! -d "$PINS_DIR" ]] || [[ ! -d "$CACHE_DIR" ]]; then
+        mkdir -p "$PINS_DIR" "$CACHE_DIR" 2>/dev/null
+        chmod 700 "$PINS_DIR" "$CACHE_DIR" 2>/dev/null
+    fi
 }
 
-#==============================================================================
-# UTILITIES
-#==============================================================================
 generate_hash() {
-    local hash
-    if command -v b2sum &>/dev/null; then
-        hash=$(printf '%s' "$1" | b2sum)
-    else
-        hash=$(printf '%s' "$1" | md5sum)
-    fi
-    # Optimization: Use Bash substring instead of 'cut'
+    local hash_line hash
+    hash_line=$(printf '%s' "$1" | "$_HASH_CMD")
+    # Clean split to handle "hash  filename" output safely
+    hash="${hash_line%% *}"
     printf '%s' "${hash:0:16}"
 }
 
-sanitize_text() {
-    local text="$1" max="${2:-$MAX_PREVIEW_LEN}"
-    text="${text//[$'\n\r\t\v\f\x00'-$'\x1f']/ }"
-    while [[ "$text" == *"  "* ]]; do text="${text//  / }"; done
-    text="${text#"${text%%[![:space:]]*}"}"
-    text="${text%"${text##*[![:space:]]}"}"
-    text="${text//$SEP/}"
-    ((${#text} > max)) && text="${text:0:max}…"
-    printf '%s' "${text:-[empty]}"
-}
-
 #==============================================================================
-# IMAGE DETECTION
+# IMAGE HANDLING
 #==============================================================================
-is_image() {
+# Detects actual image files (file utility output)
+_file_is_image() {
     local lower="${1,,}"
-    if [[ "$lower" == *"binary"* ]]; then
-        [[ "$lower" == *"png"* ]] && return 0
-        [[ "$lower" == *"jpg"* ]] && return 0
-        [[ "$lower" == *"jpeg"* ]] && return 0
-        [[ "$lower" == *"gif"* ]] && return 0
-        [[ "$lower" == *"webp"* ]] && return 0
-        [[ "$lower" == *"bmp"* ]] && return 0
-        [[ "$lower" == *"tiff"* ]] && return 0
-        [[ "$lower" == *"image/"* ]] && return 0
-    fi
+    case "$lower" in
+        *image*|*bitmap*|*png*|*jpeg*|*gif*|*webp*|*bmp*|*tiff*) return 0 ;;
+    esac
     return 1
 }
 
-parse_image_info() {
-    local content="$1"
-    local dims="" fmt=""
-    
-    if [[ "$content" =~ ([0-9]+)[xX]([0-9]+) ]]; then
-        dims="${BASH_REMATCH[1]}×${BASH_REMATCH[2]}"
-    fi
-    
-    local lower="${content,,}"
-    if [[ "$lower" == *"png"* ]]; then fmt="PNG"
-    elif [[ "$lower" == *"jpeg"* ]] || [[ "$lower" == *"jpg"* ]]; then fmt="JPG"
-    elif [[ "$lower" == *"gif"* ]]; then fmt="GIF"
-    elif [[ "$lower" == *"webp"* ]]; then fmt="WebP"
-    elif [[ "$lower" == *"bmp"* ]]; then fmt="BMP"
-    fi
-    
-    if [[ -n "$dims" && -n "$fmt" ]]; then
-        printf '%s %s' "$dims" "$fmt"
-    elif [[ -n "$dims" ]]; then
-        printf '%s' "$dims"
-    elif [[ -n "$fmt" ]]; then
-        printf '%s' "$fmt"
-    else
-        printf '[Image]'
-    fi
-}
-
-#==============================================================================
-# IMAGE CACHING & DISPLAY
-#==============================================================================
 cache_image() {
     local id="$1"
-    local path="$CACHE_DIR/${id}.png"
     
-    [[ -f "$path" ]] && { printf '%s' "$path"; return 0; }
+    # SECURITY: Prevent path traversal
+    [[ "$id" =~ ^[0-9]+$ ]] || return 1
     
-    # Improved Hygiene: mktemp + trap
+    local path="${CACHE_DIR}/${id}.png"
+    
+    # Cache hit check (reject symlinks)
+    if [[ -f "$path" && ! -L "$path" ]]; then
+        printf '%s' "$path"
+        return 0
+    fi
+    
+    # Atomic creation with trap
     local tmp
-    tmp=$(mktemp "$CACHE_DIR/${id}.tmp.XXXXXX") || return 1
+    tmp=$(mktemp "${CACHE_DIR}/tmp.XXXXXX") || return 1
     trap 'rm -f "$tmp" 2>/dev/null' RETURN
     
-    if cliphist decode "$id" > "$tmp" 2>/dev/null; then
+    # FIX: Use pipe with TAB to match cliphist expectation
+    if printf '%s\t\n' "$id" | cliphist decode > "$tmp" 2>/dev/null; then
         local ftype
-        ftype=$(file -b "$tmp" 2>/dev/null)
-        if [[ "${ftype,,}" == *"image"* ]] || [[ "${ftype,,}" == *"bitmap"* ]] || \
-           [[ "${ftype,,}" == *"png"* ]] || [[ "${ftype,,}" == *"jpeg"* ]] || \
-           [[ "${ftype,,}" == *"gif"* ]] || [[ "${ftype,,}" == *"webp"* ]]; then
-            mv -f "$tmp" "$path" 2>/dev/null
-            trap - RETURN
-            printf '%s' "$path"
-            return 0
+        ftype=$(file -b -- "$tmp" 2>/dev/null)
+        if _file_is_image "${ftype:-}"; then
+            if mv -f "$tmp" "$path" 2>/dev/null; then
+                trap - RETURN # Clear trap on success
+                printf '%s' "$path"
+                return 0
+            fi
         fi
     fi
+    
     return 1
 }
 
 is_kitty() {
-    [[ -n "${KITTY_PID:-}" ]] || [[ "${TERM:-}" == *kitty* ]] || [[ -n "${KITTY_WINDOW_ID:-}" ]]
+    [[ -n "${KITTY_PID:-}${KITTY_WINDOW_ID:-}" || "${TERM:-}" == *kitty* ]]
 }
 
 kitty_clear() {
@@ -207,94 +188,148 @@ display_image() {
 }
 
 #==============================================================================
-# LIST GENERATION
+# CORE LOGIC: LIST GENERATION
 #==============================================================================
 cmd_list() {
     local n=0
     
-    # === PINNED ITEMS ===
+    # --- Pinned Items ---
     local pin hash content preview
     while IFS= read -r pin; do
         [[ -r "$pin" ]] || continue
         ((n++))
-        hash="${pin##*/}"; hash="${hash%.pin}"
+        
+        hash="${pin##*/}"
+        hash="${hash%.pin}"
         content=$(<"$pin") || continue
-        preview=$(sanitize_text "$content" 55)
+        
+        # Inline sanitization
+        preview="${content//$'\n'/ }"
+        preview="${preview//$'\r'/}"
+        preview="${preview//$'\t'/ }"
+        preview="${preview//"$SEP"/ }"
+        if ((${#preview} > 55)); then preview="${preview:0:55}…"; fi
+        
         printf '%d %s %s%s%s%s%s\n' "$n" "$ICON_PIN" "$preview" "$SEP" "pin" "$SEP" "$hash"
-    done < <(
-        find "$PINS_DIR" -maxdepth 1 -name '*.pin' -type f -printf '%T@\t%p\n' 2>/dev/null \
-        | sort -rn | cut -f2
-    )
+    done < <(find "${PINS_DIR:?}" -maxdepth 1 -name '*.pin' -type f -printf '%T@\t%p\n' 2>/dev/null | sort -rn | cut -f2)
     
-    # === HISTORY ITEMS ===
-    local line id content
-    while IFS= read -r line; do
-        [[ -z "$line" ]] && continue
-        ((n++))
-        
-        id="${line%%$'\t'*}"
-        content="${line#*$'\t'}"
-        
-        if is_image "$content"; then
-            local info
-            info=$(parse_image_info "$content")
-            printf '%d %s %s%s%s%s%s\n' "$n" "$ICON_IMG" "$info" "$SEP" "img" "$SEP" "$id"
-        else
-            local preview
-            preview=$(sanitize_text "$content" 55)
-            printf '%d %s%s%s%s%s\n' "$n" "$preview" "$SEP" "txt" "$SEP" "$id"
-        fi
-    done < <(cliphist list 2>/dev/null)
+    # --- History Items (Zero-Fork Pipeline) ---
+    cliphist list 2>/dev/null | awk \
+        -v pin_count="$n" \
+        -v icon_img="$ICON_IMG" \
+        -v sep="$SEP" \
+        -v max_len=55 \
+    '
+    BEGIN { FS = "\t"; n = 0 }
     
-    ((n == 0)) && printf '  (clipboard empty)%s%s%s\n' "$SEP" "empty" "$SEP" ""
+    /^[[:space:]]*$/ { next }
+    
+    {
+        id = $1
+        content = ""
+        for (i = 2; i <= NF; i++) content = (i == 2) ? $i : (content "\t" $i)
+        
+        n++
+        idx = n + pin_count
+        
+        # User output is: [[ binary data ... ]] (Space exists)
+        if (content ~ /^\[\[ *binary data/) {
+            
+            # 1. Extract Dimensions (e.g. 1091x430)
+            dims = ""
+            if (match(content, /[0-9]+[xX][0-9]+/)) {
+                dims = substr(content, RSTART, RLENGTH)
+                gsub(/[xX]/, "×", dims)
+            }
+            
+            # 2. Extract Format
+            fmt = ""
+            lc = tolower(content)
+            if (index(lc, "png")) fmt = "PNG"
+            else if (index(lc, "jpeg") || index(lc, "jpg")) fmt = "JPG"
+            else if (index(lc, "gif")) fmt = "GIF"
+            else if (index(lc, "webp")) fmt = "WebP"
+            else if (index(lc, "bmp")) fmt = "BMP"
+            else if (index(lc, "tiff")) fmt = "TIFF"
+            
+            # 3. Construct Display String
+            info = ""
+            if (dims != "" && fmt != "") info = dims " " fmt
+            else if (dims != "") info = dims
+            else if (fmt != "") info = fmt
+            else info = "[Image]"
+
+            printf "%d %s %s%s%s%s%s\n", idx, icon_img, info, sep, "img", sep, id
+        } else {
+            # Text Entry
+            gsub(/[[:cntrl:]]/, " ", content)
+            gsub(/  +/, " ", content)
+            gsub(/^ +| +$/, "", content)
+            gsub(sep, " ", content) # Strip separator
+            
+            if (length(content) > max_len) content = substr(content, 1, max_len) "…"
+            printf "%d %s%s%s%s%s\n", idx, content, sep, "txt", sep, id
+        }
+    }
+    
+    END {
+        if (n == 0 && pin_count == 0) {
+            printf "  (clipboard empty)%s%s%s\n", sep, "empty", sep
+        }
+    }
+    '
 }
 
 #==============================================================================
-# PREVIEW
+# PREVIEW LOGIC
 #==============================================================================
 cmd_preview() {
     local input="$1"
     is_kitty && kitty_clear
     
+    [[ -z "$input" ]] && { printf '\e[90mNo selection.\e[0m\n'; return 0; }
     [[ "$input" == *"(clipboard empty)"* ]] && {
-        printf '\n\e[90mClipboard is empty.\nCopy something to get started!\e[0m\n'
-        return 0
+        printf '\n\e[90mClipboard is empty.\nCopy something to get started!\e[0m\n'; return 0;
     }
     
-    local visible type id
-    IFS="$SEP" read -r visible type id <<< "$input"
+    # Right-to-Left Parsing for safety
+    local type id rest
+    id="${input##*"${SEP}"}"
+    rest="${input%"${SEP}"*}"
+    type="${rest##*"${SEP}"}"
     
     case "$type" in
         pin)
             printf '\e[1;33m━━━ %s PINNED ━━━\e[0m\n\n' "$ICON_PIN"
-            local pin_file="$PINS_DIR/${id}.pin"
+            local pin_file="${PINS_DIR:?}/${id}.pin"
             if [[ -f "$pin_file" ]]; then
                 if command -v bat &>/dev/null; then
-                    bat --style=plain --color=always --paging=never "$pin_file" 2>/dev/null
+                    bat --style=plain --color=always --paging=never --wrap=character \
+                        --terminal-width="${FZF_PREVIEW_COLUMNS:-80}" "$pin_file" 2>/dev/null \
+                    || cat -- "$pin_file"
                 else
-                    cat "$pin_file"
+                    cat -- "$pin_file"
                 fi
             else
-                printf '\e[31mPin not found\e[0m\n'
+                printf '\e[31mPin file missing.\e[0m\n'
             fi
             ;;
-        
         img)
             printf '\e[1;36m━━━ %s IMAGE ━━━\e[0m\n' "$ICON_IMG"
             local img_path
-            if img_path=$(cache_image "$id"); then
-                file -b "$img_path" 2>/dev/null | head -c 50
+            if img_path=$(cache_image "$id") && [[ -f "$img_path" ]]; then
+                file -b -- "$img_path" 2>/dev/null | head -c 80
                 printf '\n\n'
                 display_image "$img_path"
             else
-                printf '\n\e[31mFailed to decode image\e[0m\n'
+                printf '\n\e[31mFailed to decode image.\e[0m\n'
             fi
             ;;
-        
         txt)
             printf '\e[1;32m━━━ TEXT ━━━\e[0m\n\n'
             local content
-            if content=$(cliphist decode "$id" 2>/dev/null); then
+            # FIX: Included \t to ensure cliphist parses the ID correctly
+            if content=$(printf '%s\t\n' "$id" | cliphist decode 2>/dev/null) && [[ -n "$content" ]]; then
                 if ((${#content} > 50000)); then
                     printf '%s' "${content:0:50000}"
                     printf '\n\n\e[90m[...truncated...]\e[0m\n'
@@ -302,17 +337,11 @@ cmd_preview() {
                     printf '%s' "$content"
                 fi
             else
-                printf '\e[31mFailed to decode\e[0m\n'
+                printf '\e[31mFailed to decode entry.\e[0m\n'
             fi
             ;;
-        
-        empty)
-            printf '\e[90mNothing here\e[0m\n'
-            ;;
-        
         *)
-            printf '\e[31mUnknown type: %s\e[0m\n' "$type"
-            printf 'Raw input: %s\n' "$input"
+            printf '\e[31mUnknown type: %q\e[0m\n' "$type"
             ;;
     esac
 }
@@ -323,16 +352,19 @@ cmd_preview() {
 cmd_copy() {
     local input="$1" visible type id
     IFS="$SEP" read -r visible type id <<< "$input"
+    [[ -z "${type:-}" || -z "${id:-}" ]] && return 1
     
     case "$type" in
         pin)
             [[ -f "$PINS_DIR/${id}.pin" ]] && wl-copy < "$PINS_DIR/${id}.pin"
             ;;
         img)
-            cliphist decode "$id" 2>/dev/null | wl-copy --type image/png
+            # FIX: Included \t to ensure cliphist parses the ID correctly
+            printf '%s\t\n' "$id" | cliphist decode 2>/dev/null | wl-copy --type "image/png"
             ;;
         txt)
-            cliphist decode "$id" 2>/dev/null | wl-copy
+            # FIX: Included \t to ensure cliphist parses the ID correctly
+            printf '%s\t\n' "$id" | cliphist decode 2>/dev/null | wl-copy
             ;;
     esac
 }
@@ -340,25 +372,26 @@ cmd_copy() {
 cmd_pin() {
     local input="$1" visible type id
     IFS="$SEP" read -r visible type id <<< "$input"
+    [[ -z "${type:-}" || -z "${id:-}" ]] && return 1
     
     case "$type" in
         pin)
             rm -f "$PINS_DIR/${id}.pin"
             ;;
-        img)
-            notify "Image pinning not supported" "low"
-            ;;
         txt)
             local content hash pin_file tmp_file
-            if content=$(cliphist decode "$id" 2>/dev/null) && [[ -n "$content" ]]; then
-                hash=$(generate_hash "$content")
-                pin_file="$PINS_DIR/${hash}.pin"
-                
-                # Atomic write: secure temp file, chmod, then move
-                tmp_file="${pin_file}.tmp.$$"
-                printf '%s' "$content" > "$tmp_file"
-                chmod 600 "$tmp_file"
+            # FIX: Included \t to ensure cliphist parses the ID correctly
+            content=$(printf '%s\t\n' "$id" | cliphist decode 2>/dev/null) || return 1
+            [[ -z "$content" ]] && return 1
+            
+            hash=$(generate_hash "$content")
+            pin_file="$PINS_DIR/${hash}.pin"
+            tmp_file=$(mktemp "${PINS_DIR}/.pin.XXXXXX") || return 1
+            trap "rm -f '$tmp_file' 2>/dev/null" RETURN
+            
+            if printf '%s' "$content" > "$tmp_file"; then
                 mv -f "$tmp_file" "$pin_file"
+                trap - RETURN # Clear trap on success
             fi
             ;;
     esac
@@ -367,122 +400,87 @@ cmd_pin() {
 cmd_delete() {
     local input="$1" visible type id
     IFS="$SEP" read -r visible type id <<< "$input"
+    [[ -z "${type:-}" || -z "${id:-}" ]] && return 1
     
     case "$type" in
         pin) rm -f "$PINS_DIR/${id}.pin" ;;
-        img) cliphist delete "$id" 2>/dev/null; rm -f "$CACHE_DIR/${id}.png" ;;
-        txt) cliphist delete "$id" 2>/dev/null ;;
+        img)
+            # FIX: Included \t to ensure cliphist parses the ID correctly
+            printf '%s\t\n' "$id" | cliphist delete 2>/dev/null
+            rm -f "$CACHE_DIR/${id}.png"
+            ;;
+        txt)
+            # FIX: Included \t to ensure cliphist parses the ID correctly
+            printf '%s\t\n' "$id" | cliphist delete 2>/dev/null
+            ;;
     esac
 }
 
 cmd_wipe() {
     cliphist wipe 2>/dev/null
-    rm -f "$CACHE_DIR"/*.png "$CACHE_DIR"/*.tmp.* 2>/dev/null
+    rm -f "$CACHE_DIR"/*.png 2>/dev/null
+    rm -f "$PINS_DIR"/.pin.?????? 2>/dev/null
 }
 
 #==============================================================================
-# MAIN MENU
+# UI & ENTRY POINT
 #==============================================================================
 show_menu() {
     if [[ ! -t 0 ]] || [[ ! -t 1 ]]; then
+        local term_cmd=()
         if command -v kitty &>/dev/null; then
-            exec kitty --class=cliphist-fzf --title="Clipboard" \
-                -o remember_window_size=no \
-                -o initial_window_width=95c \
-                -o initial_window_height=20c \
-                -o confirm_os_window_close=0 \
-                -e "$SELF"
+            term_cmd=(kitty --class=cliphist-fzf --title="Clipboard" -o confirm_os_window_close=0 -e "$SELF")
         elif command -v foot &>/dev/null; then
-            exec foot --app-id=cliphist-fzf --title="Clipboard" \
-                --window-size-chars=95x20 "$SELF"
+            term_cmd=(foot --app-id=cliphist-fzf --title="Clipboard" --window-size-chars=95x20 "$SELF")
         elif command -v alacritty &>/dev/null; then
-            exec alacritty --class=cliphist-fzf --title="Clipboard" \
-                -o window.dimensions.columns=95 \
-                -o window.dimensions.lines=20 \
-                -e "$SELF"
+            term_cmd=(alacritty --class=cliphist-fzf --title="Clipboard" -o window.dimensions.columns=95 -o window.dimensions.lines=20 -e "$SELF")
         else
-            notify "No terminal found. Install kitty, foot, or alacritty" "critical"
-            exit 1
+            notify "No terminal found." "critical"; exit 1
         fi
+        exec "${term_cmd[@]}"
     fi
     
-    trap 'is_kitty && kitty_clear' EXIT INT TERM
+    trap 'is_kitty && kitty_clear' EXIT
     
     local selection
     selection=$(cmd_list | fzf \
-        --ansi \
-        --reverse \
-        --no-sort \
-        --exact \
-        --no-multi \
-        --cycle \
-        --margin=0 \
-        --padding=0 \
-        --border=rounded \
-        --border-label=" 📋 Clipboard " \
-        --border-label-pos=3 \
-        --info=hidden \
-        --header="Alt+ (t=Wipe u=Pin y=Unpin)" \
-        --header-first \
-        --prompt="  " \
-        --pointer="▌" \
-        --delimiter="$SEP" \
-        --with-nth=1 \
-        --preview="'$SELF' --preview {}" \
-        --preview-window="right,45%,~1,wrap" \
+        --ansi --reverse --no-sort --exact --no-multi --cycle \
+        --margin=0 --padding=0 \
+        --border=rounded --border-label=" 📋 Clipboard " --border-label-pos=3 \
+        --info=hidden --header="Alt+ (t=Wipe u=Pin/Unpin y=Delete)" --header-first \
+        --prompt="  " --pointer="▌" --delimiter="$SEP" --with-nth=1 \
+        --preview="'$SELF' --preview {}" --preview-window="right,45%,~1,wrap" \
         --bind="enter:accept" \
         --bind="alt-u:execute-silent('$SELF' --pin {})+reload('$SELF' --list)" \
         --bind="alt-y:execute-silent('$SELF' --delete {})+reload('$SELF' --list)" \
         --bind="alt-t:execute-silent('$SELF' --wipe)+reload('$SELF' --list)" \
-        --bind="esc:abort" \
-        --bind="ctrl-c:abort"
+        --bind="esc:abort" --bind="ctrl-c:abort"
     )
-    
-    is_kitty && kitty_clear
     
     if [[ -n "$selection" ]]; then
         cmd_copy "$selection"
     fi
-    
-    # Forcefully kill the parent process (the terminal) to ensure everything closes.
-    kill -9 $PPID
+
+    # SAFETY: Only kill the parent process if we are reasonably sure it is 
+    # the ephemeral kitty window we spawned.
+    if [[ -n "${KITTY_PID:-}" || "${TERM:-}" == *kitty* ]]; then
+        kill -15 $PPID 2>/dev/null
+    fi
 }
 
-#==============================================================================
-# ENTRY POINT
-#==============================================================================
 main() {
     case "${1:-}" in
         --list)    cmd_list ;;
-        --preview) shift; cmd_preview "$*" ;;
-        --pin)     shift; cmd_pin "$*" ;;
-        --delete)  shift; cmd_delete "$*" ;;
+        --preview) [[ $# -ge 2 ]] && { shift; cmd_preview "$1"; } ;;
+        --pin)     [[ $# -ge 2 ]] && { shift; cmd_pin "$1"; } ;;
+        --delete)  [[ $# -ge 2 ]] && { shift; cmd_delete "$1"; } ;;
         --wipe)    cmd_wipe ;;
         --help|-h)
-            cat <<'EOF'
-FZF Clipboard Manager - Live Image Preview
-
-USAGE:
-    clipboard-manager           Launch
-    clipboard-manager --help    This help
-
-KEYS:
-    Enter    Copy to clipboard
-    Alt-u    Pin / Unpin
-    Alt-y    Delete item
-    Alt-t    Wipe history (keeps pins)
-    Esc      Exit
-
-DEPS:
-    Required: fzf cliphist wl-clipboard
-    Optional: chafa bat kitty
-EOF
+            echo "Usage: clipboard-manager [launch|--help]"
+            echo "Dependencies: fzf, cliphist, wl-clipboard"
             ;;
-        *)
-            check_deps
-            setup_dirs
-            show_menu
-            ;;
+        "") check_deps; setup_dirs; show_menu ;;
+        *)  exit 1 ;;
     esac
 }
 
