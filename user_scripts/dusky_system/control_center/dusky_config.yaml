@@ -961,7 +961,7 @@ pages:
     items:
     - type: button
       properties:
-        title: Waybar Swap
+        title: Dusky Waybar Select
         description: Choose Status Bar Style
         icon: view-more-symbolic
         button_text: "Swap"
@@ -971,7 +971,7 @@ pages:
         terminal: false
     - type: button
       properties:
-        title: SwayNC Position
+        title: SwayNC Side Switch
         description: Toggle notification center side
         icon: preferences-system-notifications-symbolic
         button_text: "Switch"
@@ -1287,22 +1287,66 @@ pages:
       layout:
         - type: section
           properties:
-            title: Waybar Configs
+            title: Waybar Management
           items:
             - type: button
               properties:
-                title: Waybar Config
-                button_text: "View"
+                title: Dusky Waybar Select
+                description: Launch TUI to swap configs (Preview)
+                icon: view-more-symbolic
+                button_text: "Swap"
               on_press:
                 type: exec
-                command: gnome-text-editor "$HOME/.config/waybar/config.jsonc"
-            - type: button
+                command: kitty --class dusky_waybars.sh --hold sh -c $HOME/user_scripts/waybar/dusky_waybars.sh
+                terminal: false
+            - type: selection
               properties:
-                title: Waybar Style
-                button_text: "View"
-              on_press:
+                title: Active Waybar
+                description: Current theme
+                icon: preferences-system-symbolic
+                options_command: "find $HOME/.config/waybar -maxdepth 1 -type d -not -name '.*' -printf '%f\n' | sort"
+                value_command: "readlink -f $HOME/.config/waybar/config.jsonc | xargs dirname | xargs basename"
+                interval: 5
+              on_change:
                 type: exec
-                command: gnome-text-editor "$HOME/.config/waybar/style.css"
+                command: "ln -sf $HOME/.config/waybar/{value}/config.jsonc $HOME/.config/waybar/config.jsonc; ln -sf $HOME/.config/waybar/{value}/style.css $HOME/.config/waybar/style.css; killall -SIGUSR2 waybar"
+
+        - type: section
+          properties:
+            title: Available Themes
+            description: Located in ~/.config/waybar/
+          items:
+            - type: directory_generator
+              properties:
+                path: ~/.config/waybar
+                sort: name
+              item_template:
+                type: expander
+                properties:
+                  title: "{name_pretty}"
+                  description: "{name}"
+                  icon: folder-symbolic
+                items:
+                  - type: button
+                    properties:
+                      title: Config
+                      description: config.jsonc
+                      icon: preferences-system-symbolic
+                      button_text: "Edit"
+                    on_press:
+                      type: exec
+                      command: gnome-text-editor "{path}/config.jsonc"
+                      terminal: false
+                  - type: button
+                    properties:
+                      title: Style
+                      description: style.css
+                      icon: text-x-script-symbolic
+                      button_text: "Edit"
+                    on_press:
+                      type: exec
+                      command: gnome-text-editor "{path}/style.css"
+                      terminal: false
 
     - type: navigation
       properties:
@@ -1316,18 +1360,67 @@ pages:
           items:
             - type: button
               properties:
-                title: SwayNC Config
-                button_text: "View"
+                title: SwayNC Side Switch
+                description: Toggle notification center side
+                icon: preferences-system-notifications-symbolic
+                button_text: "Switch"
               on_press:
                 type: exec
-                command: gnome-text-editor "$HOME/.config/swaync/config.json"
+                command: kitty --class dusky_swaync_side.sh --hold sh -c $HOME/user_scripts/swaync/dusky_swaync_side.sh
+                terminal: false
             - type: button
               properties:
-                title: SwayNC Style
-                button_text: "View"
-              on_press:
-                type: exec
-                command: gnome-text-editor "$HOME/.config/swaync/style.css"
+                title: Active SwayNC
+                description: Edit Current Configuration
+                icon: preferences-system-symbolic
+                buttons:
+                  - icon: preferences-system-symbolic
+                    button_text: "Config"
+                    on_press:
+                      type: exec
+                      command: gnome-text-editor "$HOME/.config/swaync/config.json"
+                  - icon: text-x-script-symbolic
+                    button_text: "Style"
+                    on_press:
+                      type: exec
+                      command: gnome-text-editor "$HOME/.config/swaync/style.css"
+
+        - type: section
+          properties:
+            title: Available Themes
+            description: Located in ~/.config/swaync/themes/
+          items:
+            - type: directory_generator
+              properties:
+                path: ~/.config/swaync/themes
+                sort: name
+              item_template:
+                type: expander
+                properties:
+                  title: "{name_pretty}"
+                  description: "{name}"
+                  icon: folder-symbolic
+                items:
+                  - type: button
+                    properties:
+                      title: Config
+                      description: config.json
+                      icon: preferences-system-symbolic
+                      button_text: "Edit"
+                    on_press:
+                      type: exec
+                      command: gnome-text-editor "{path}/config.json"
+                      terminal: false
+                  - type: button
+                    properties:
+                      title: Style
+                      description: style.css
+                      icon: text-x-script-symbolic
+                      button_text: "Edit"
+                    on_press:
+                      type: exec
+                      command: gnome-text-editor "{path}/style.css"
+                      terminal: false
 
     - type: navigation
       properties:
@@ -1346,6 +1439,64 @@ pages:
               on_press:
                 type: exec
                 command: gnome-text-editor "$HOME/.config/matugen/config.toml"
+
+    - type: navigation
+      properties:
+        title: Hyprlock Themes
+        description: Manage installed Hyprlock themes
+        icon: system-lock-screen-symbolic
+      layout:
+        - type: section
+          properties:
+            title: Hyprlock Management
+          items:
+            - type: button
+              properties:
+                title: Dusky Hyprlock Select
+                description: Swap Lock Screen Layout (TUI)
+                icon: system-lock-screen-symbolic
+                button_text: "Swap"
+              on_press:
+                type: exec
+                command: kitty --class dusky_hyprlock_switcher.sh --hold sh -c $HOME/user_scripts/hyprlock/dusky_hyprlock_switcher.sh
+                terminal: false
+
+        - type: section
+          properties:
+            title: Available Themes
+            description: Located in ~/.config/hypr/hyprlock_themes/
+          items:
+            - type: directory_generator
+              properties:
+                path: ~/.config/hypr/hyprlock_themes
+                sort: name
+              item_template:
+                type: expander
+                properties:
+                  title: "{name_pretty}"
+                  description: "{name}"
+                  icon: folder-symbolic
+                items:
+                  - type: button
+                    properties:
+                      title: Config
+                      description: hyprlock.conf
+                      icon: preferences-system-symbolic
+                      button_text: "Edit"
+                    on_press:
+                      type: exec
+                      command: gnome-text-editor "{path}/hyprlock.conf"
+                      terminal: false
+                  - type: button
+                    properties:
+                      title: Theme Data
+                      description: theme.json
+                      icon: text-x-script-symbolic
+                      button_text: "Edit"
+                    on_press:
+                      type: exec
+                      command: gnome-text-editor "{path}/theme.json"
+                      terminal: false
 
   - type: section
     properties:

@@ -209,6 +209,7 @@ class RowProperties(TypedDict, total=False):
     default: float
     debounce: bool
     options: list[str]  # Added for SelectionRow
+    options_command: str # ADDED: Command to fetch options list
     placeholder: str    # Added for EntryRow logic
     badge_file: str     # ADDED: Path to file containing badge count
     buttons: list[dict[str, Any]] # ADDED: Support for multiple linked buttons
@@ -1234,11 +1235,11 @@ class SelectionRow(DynamicIconMixin, Adw.ComboRow):
         self.icon_widget = self._create_icon_widget(icon_config)
         self.add_prefix(self.icon_widget)
 
-        # Options Setup - Normalize to strings immediately to prevent type mismatch
+        # Options Setup - Initialize empty, then populate
+        self.options_list: list[str] = []
         raw_options = properties.get("options", [])
-        self.options_list = [str(x) for x in raw_options] if isinstance(raw_options, list) else []
-        
-        if self.options_list:
+        if isinstance(raw_options, list) and raw_options:
+            self.options_list = [str(x) for x in raw_options]
             self.set_model(Gtk.StringList.new(self.options_list))
 
         # Signal Connections
@@ -1249,6 +1250,10 @@ class SelectionRow(DynamicIconMixin, Adw.ComboRow):
         # Start Monitors
         if _is_dynamic_icon(icon_config) and isinstance(icon_config, dict):
             self._start_icon_update_loop(icon_config)
+
+        # Handle dynamic options command
+        if properties.get("options_command"):
+            _submit_task_safe(self._fetch_options_async, self._state)
 
         if properties.get("value_command"):
             self._start_selection_monitor()
@@ -1277,13 +1282,47 @@ class SelectionRow(DynamicIconMixin, Adw.ComboRow):
         finally:
             self._programmatic_update = False
 
+    def _fetch_options_async(self) -> None:
+        """Fetch options list from a command in the background."""
+        cmd = self.properties.get("options_command", "")
+        if not cmd:
+            return
+
+        try:
+            res = subprocess.run(
+                cmd,
+                shell=True,
+                capture_output=True,
+                text=True,
+                timeout=SUBPROCESS_TIMEOUT_LONG
+            )
+            if res.returncode == 0:
+                lines = [line.strip() for line in res.stdout.splitlines() if line.strip()]
+                if lines:
+                    GLib.idle_add(self._update_options_ui, lines)
+        except Exception as e:
+            log.error(f"Options fetch failed: {e}")
+
+    def _update_options_ui(self, new_options: list[str]) -> bool:
+        """Update the dropdown model with new options."""
+        with self._state.lock:
+            if self._state.is_destroyed:
+                return GLib.SOURCE_REMOVE
+
+        # Only update if changed to avoid flicker
+        if new_options != self.options_list:
+            self.options_list = new_options
+            # Note: replacing the model resets selection to 0, monitoring will fix it shortly
+            with self._suppress_change_signal():
+                self.set_model(Gtk.StringList.new(self.options_list))
+                # Trigger immediate re-check of value to restore correct selection
+                _submit_task_safe(self._fetch_selection_async, self._state)
+
+        return GLib.SOURCE_REMOVE
+
     def _start_selection_monitor(self) -> None:
         """Initialize the selection polling loop."""
         interval = _safe_int(self.properties.get("interval"), DEFAULT_INTERVAL_SECONDS)
-
-        # Note: We do NOT trigger _fetch_selection_async here immediately.
-        # We rely on the 'map' signal to trigger the first fetch when the widget 
-        # is actually realized. This prevents duplicate processes on startup.
 
         with self._state.lock:
             if self._state.is_destroyed:
@@ -1294,8 +1333,9 @@ class SelectionRow(DynamicIconMixin, Adw.ComboRow):
 
     def _on_map(self, _widget: Gtk.Widget) -> None:
         """Trigger an update whenever the widget becomes visible."""
-        # This ensures the state is fresh every time you switch to this page
         _submit_task_safe(self._fetch_selection_async, self._state)
+        if self.properties.get("options_command"):
+             _submit_task_safe(self._fetch_options_async, self._state)
 
     def _check_selection_tick(self) -> bool:
         """GLib timeout to schedule background fetch."""
@@ -1344,8 +1384,9 @@ class SelectionRow(DynamicIconMixin, Adw.ComboRow):
                 return GLib.SOURCE_REMOVE
 
         if value not in self.options_list:
-            # This log is critical for debugging why it might be "stuck"
-            log.debug(f"Polled value '{value}' not found in options {self.options_list}")
+            # If value isn't in options, we might need to refresh options
+            if self.properties.get("options_command"):
+                 _submit_task_safe(self._fetch_options_async, self._state)
             return GLib.SOURCE_REMOVE
 
         idx = self.options_list.index(value)

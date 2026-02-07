@@ -140,13 +140,14 @@ class ItemType(StrEnum):
     TOGGLE = "toggle"
     LABEL = "label"
     SLIDER = "slider"
-    SELECTION = "selection"  # Updated
-    ENTRY = "entry"          # Updated
+    SELECTION = "selection"
+    ENTRY = "entry"
     NAVIGATION = "navigation"
     WARNING_BANNER = "warning_banner"
     TOGGLE_CARD = "toggle_card"
     GRID_CARD = "grid_card"
     EXPANDER = "expander"
+    DIRECTORY_GENERATOR = "directory_generator"  # New Type
 
 
 class SectionType(StrEnum):
@@ -173,6 +174,8 @@ class ItemProperties(TypedDict, total=False):
     debounce: bool
     options: list[str]
     placeholder: str
+    path: str  # For directory generator
+    sort: str  # For directory generator
 
 
 class ConfigItem(TypedDict, total=False):
@@ -185,6 +188,7 @@ class ConfigItem(TypedDict, total=False):
     on_action: dict[str, Any] | None
     layout: list[Any]  # Recursive reference
     items: list[Any]   # For expander rows
+    item_template: dict[str, Any] # For generator
     value: dict[str, Any] | None
 
 
@@ -860,41 +864,55 @@ class DuskyControlCenter(Adw.Application):
         """
         for section in layout:
             for item in section.get("items", []):
-                props = item.get("properties", {})
-                title = str(props.get("title", "")).lower()
-                desc = str(props.get("description", "")).lower()
+                # Handle generators in search
+                if item.get("type") == ItemType.DIRECTORY_GENERATOR:
+                    for gen_item in self._process_directory_generator(item):
+                        yield from self._check_item_match(gen_item, query, breadcrumb)
+                else:
+                    yield from self._check_item_match(item, query, breadcrumb)
 
-                # Exclude navigation items from search (they're structural)
-                item_type = item.get("type", "")
-                if item_type not in (ItemType.NAVIGATION, ItemType.EXPANDER):
-                    if query in title or query in desc:
-                        result: ConfigItem = deepcopy(item)
-                        result.setdefault("properties", {})
-                        original_desc = props.get("description", "")
-                        result["properties"]["description"] = (
-                            f"{breadcrumb} • {original_desc}" 
-                            if original_desc 
-                            else breadcrumb
-                        )
-                        yield result
+    def _check_item_match(
+        self,
+        item: ConfigItem,
+        query: str,
+        breadcrumb: str,
+    ) -> Iterator[ConfigItem]:
+        """Check if a single item matches the query and recurse if needed."""
+        props = item.get("properties", {})
+        title = str(props.get("title", "")).lower()
+        desc = str(props.get("description", "")).lower()
+        item_type = item.get("type", "")
 
-                # Recurse into nested layouts (NavigationRow)
-                if "layout" in item:
-                    sub_title = str(props.get("title", "Submenu"))
-                    yield from self._recursive_search(
-                        item.get("layout", []),
-                        query,
-                        f"{breadcrumb} › {sub_title}",
-                    )
+        # Exclude navigation/structure items from direct results unless relevant
+        if item_type not in (ItemType.NAVIGATION, ItemType.EXPANDER):
+            if query in title or query in desc:
+                result: ConfigItem = deepcopy(item)
+                result.setdefault("properties", {})
+                original_desc = props.get("description", "")
+                result["properties"]["description"] = (
+                    f"{breadcrumb} • {original_desc}" 
+                    if original_desc 
+                    else breadcrumb
+                )
+                yield result
 
-                # Recurse into expander items
-                if "items" in item and item_type == ItemType.EXPANDER:
-                    sub_title = str(props.get("title", "Expander"))
-                    yield from self._search_expander_items(
-                        item.get("items", []),
-                        query,
-                        f"{breadcrumb} › {sub_title}",
-                    )
+        # Recurse into nested layouts (NavigationRow)
+        if "layout" in item:
+            sub_title = str(props.get("title", "Submenu"))
+            yield from self._recursive_search(
+                item.get("layout", []),
+                query,
+                f"{breadcrumb} › {sub_title}",
+            )
+
+        # Recurse into expander items
+        if "items" in item and item_type == ItemType.EXPANDER:
+            sub_title = str(props.get("title", "Expander"))
+            yield from self._search_expander_items(
+                item.get("items", []),
+                query,
+                f"{breadcrumb} › {sub_title}",
+            )
 
     def _search_expander_items(
         self,
@@ -1171,9 +1189,53 @@ class DuskyControlCenter(Adw.Application):
             group.set_description(GLib.markup_escape_text(str(desc)))
 
         for item in section.get("items", []):
-            group.add(self._build_item_row(item, ctx))
+            if item.get("type") == ItemType.DIRECTORY_GENERATOR:
+                for gen_item in self._process_directory_generator(item):
+                    group.add(self._build_item_row(gen_item, ctx))
+            else:
+                group.add(self._build_item_row(item, ctx))
 
         return group
+
+    def _process_directory_generator(self, config: ConfigItem) -> Iterator[ConfigItem]:
+        """Generate items based on directory contents."""
+        props = config.get("properties", {})
+        path_str = props.get("path")
+        if not path_str:
+            return
+
+        base_path = Path(path_str).expanduser()
+        if not base_path.exists() or not base_path.is_dir():
+            return
+
+        template = config.get("item_template")
+        if not template:
+            return
+
+        # List directories
+        try:
+            dirs = sorted([p for p in base_path.iterdir() if p.is_dir()])
+        except OSError:
+            return
+
+        for d in dirs:
+            item = deepcopy(template)
+            name_pretty = d.name.replace('_', ' ').title()
+            variables = {"name": d.name, "path": str(d), "name_pretty": name_pretty}
+            yield self._inject_variables(item, variables)
+
+    def _inject_variables(self, item: Any, vars: dict[str, str]) -> Any:
+        """Recursively replace variables in strings."""
+        if isinstance(item, str):
+            res = item
+            for k, v in vars.items():
+                res = res.replace(f"{{{k}}}", v)
+            return res
+        elif isinstance(item, list):
+            return [self._inject_variables(x, vars) for x in item]
+        elif isinstance(item, dict):
+            return {k: self._inject_variables(v, vars) for k, v in item.items()}
+        return item
 
     def _build_item_row(
         self, 
