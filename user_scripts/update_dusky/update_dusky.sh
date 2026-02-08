@@ -266,6 +266,7 @@ declare -ra UPDATE_SEQUENCE=(
     "U | 088_hyprctl_reload.sh"
     "U | 090_switch_clipboard.sh --terminal"
 #    "S | 091_sddm_setup.sh --auto"
+    "U | 092_vesktop_matugen.sh"
 
 
 
