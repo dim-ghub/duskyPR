@@ -19,7 +19,7 @@ readonly APP_TITLE="Dusky Matugen Presets"
 readonly APP_VERSION="v3.6.0"
 
 # --- State Management ---
-readonly USE_STATE_FILE=true
+readonly USE_STATE_FILE=false
 readonly STATE_FILE="${HOME}/.config/dusky/settings/dusky_theme/state.conf"
 
 # Dimensions & Layout
