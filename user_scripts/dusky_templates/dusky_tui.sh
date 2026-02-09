@@ -1,20 +1,15 @@
 #!/usr/bin/env bash
 # -----------------------------------------------------------------------------
-# Dusky TUI Engine - Master Template v3.2.1 (Stable & Hardened)
+# Dusky TUI Engine - Master Template v3.2.3 (Stress Test Hardened)
 # -----------------------------------------------------------------------------
 # Target: Arch Linux / Hyprland / UWSM / Wayland
 # Requires: Bash 5.0+, GNU sed, GNU awk
 #
-# v3.2.1 CHANGELOG:
-#   - FIX: Soft-coded TAB_ROW for maintainable mouse regions.
-# v3.2.0 CHANGELOG:
-#   - SAFETY: Reverted broken block-parsing logic suggested by audit.
-#   - SAFETY: Retained whitespace separation for inline comments.
-#   - FIX: Batched sed writes for atomicity (prevents partial updates).
-#   - FIX: Manual mouse sequence parsing (robust against regex edge cases).
-#   - FIX: Scoped LC_NUMERIC to prevent global environment pollution.
-#   - FIX: Hardened escape_sed_pattern for BRE special characters ({, }).
-#   - FIX: Added strict TTY validation before startup.
+# v3.2.3 CHANGELOG:
+#   - FIX: Lowered ADJUST_THRESHOLD to 39 to fix mouse hitbox on value start.
+#   - IMP: Increased float precision to %.6g to prevent rounding errors.
+# v3.2.2 CHANGELOG:
+#   - FIX: Correctly parse nested configuration blocks.
 # -----------------------------------------------------------------------------
 
 set -euo pipefail
@@ -25,18 +20,18 @@ set -euo pipefail
 
 readonly CONFIG_FILE="${HOME}/.config/hypr/change_me.conf"
 readonly APP_TITLE="Dusky Template"
-readonly APP_VERSION="v3.2.1"
+readonly APP_VERSION="v3.2.3"
 
 # Dimensions & Layout
 declare -ri MAX_DISPLAY_ROWS=14
 declare -ri BOX_INNER_WIDTH=76
-declare -ri ADJUST_THRESHOLD=40
+# UPDATED: Set to 39 so clicks on the first character of the value register correctly
+declare -ri ADJUST_THRESHOLD=39
 declare -ri ITEM_PADDING=32
 
 declare -ra TABS=("General" "Input" "Display" "Misc")
 
 # Item Registration
-# Syntax: register <tab_idx> "Label" "config_str" "DEFAULT_VALUE"
 register_items() {
     register 0 "Enable Logs"    'logs_enabled|bool|general|||'          "true"
     register 0 "Timeout (ms)"   'timeout|int|general|0|1000|50'        "100"
@@ -46,7 +41,7 @@ register_items() {
     register 3 "Shadow Color"   'col.shadow|cycle|general|0xee1a1a1a,0xff000000||' "0xee1a1a1a"
 }
 
-# Post-Write Hook (reload services here)
+# Post-Write Hook
 post_write_action() {
     : # Example: pgrep -x waybar >/dev/null && killall -SIGUSR2 waybar
 }
@@ -61,13 +56,6 @@ printf -v _h_line_buf '%*s' "$BOX_INNER_WIDTH" ''
 readonly H_LINE="${_h_line_buf// /─}"
 unset _h_line_buf
 
-# Compute ITEM_START_ROW from the actual header structure:
-#   Row 1: top border
-#   Row 2: title
-#   Row 3: tabs
-#   Row 4: bottom border
-#   Row 5: scroll indicator / blank
-#   Row 6: first item
 declare -ri HEADER_ROWS=4
 declare -ri TAB_ROW=3
 declare -ri ITEM_START_ROW=$(( HEADER_ROWS + 2 ))
@@ -91,11 +79,7 @@ readonly CURSOR_SHOW=$'\033[?25h'
 readonly MOUSE_ON=$'\033[?1000h\033[?1002h\033[?1006h'
 readonly MOUSE_OFF=$'\033[?1000l\033[?1002l\033[?1006l'
 
-# Timeout for reading escape sequences (seconds).
-# 0.05s is reliable for full SGR mouse sequences over SSH/tmux.
 readonly ESC_READ_TIMEOUT=0.05
-
-# Internal marker for unset values
 readonly UNSET_MARKER='«unset»'
 
 # --- State Management ---
@@ -112,8 +96,6 @@ declare -A VALUE_CACHE=()
 declare -A CONFIG_CACHE=()
 declare -A DEFAULTS=()
 
-# Provision tab containers dynamically based on actual TAB_COUNT
-# Using -ga to ensure they are visible globally
 for (( _ti = 0; _ti < TAB_COUNT; _ti++ )); do
     declare -ga "TAB_ITEMS_${_ti}=()"
 done
@@ -126,7 +108,6 @@ log_err() {
 }
 
 cleanup() {
-    # Silence output to prevent "write error: broken pipe" on exit
     printf '%s%s%s' "$MOUSE_OFF" "$CURSOR_SHOW" "$C_RESET" 2>/dev/null || :
     if [[ -n "${ORIGINAL_STTY:-}" ]]; then
         stty "$ORIGINAL_STTY" 2>/dev/null || :
@@ -138,12 +119,11 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# --- Sed Escaping (BRE-safe, delimiter: |) ---
+# --- Sed Escaping ---
 
 escape_sed_replacement() {
     local _esc=$1
     local -n _out=$2
-    # Order matters: backslash first, then delimiter, then &, then newline
     _esc=${_esc//\\/\\\\}
     _esc=${_esc//|/\\|}
     _esc=${_esc//&/\\&}
@@ -154,7 +134,6 @@ escape_sed_replacement() {
 escape_sed_pattern() {
     local _esc=$1
     local -n _out=$2
-    # Escape all BRE metacharacters, the delimiter |, and braces
     _esc=${_esc//\\/\\\\}
     _esc=${_esc//|/\\|}
     _esc=${_esc//./\\.}
@@ -200,10 +179,7 @@ populate_config_cache() {
     while IFS='=' read -r key_part value_part || [[ -n "${key_part:-}" ]]; do
         [[ -z "${key_part:-}" ]] && continue
         CONFIG_CACHE["$key_part"]=$value_part
-
-        # Use parameter expansion to strip key suffix
         key_name=${key_part%%|*}
-        # Use +set check to handle empty-string values correctly
         if [[ -z "${CONFIG_CACHE["${key_name}|"]+set}" ]]; then
             CONFIG_CACHE["${key_name}|"]=$value_part
         fi
@@ -215,6 +191,7 @@ populate_config_cache() {
             sub(/#.*/, "", line)
 
             tmpline = line
+            # Stack push logic
             while (match(tmpline, /[a-zA-Z0-9_.:-]+[[:space:]]*\{/)) {
                 block_str = substr(tmpline, RSTART, RLENGTH)
                 sub(/[[:space:]]*\{/, "", block_str)
@@ -230,15 +207,25 @@ populate_config_cache() {
                     val = substr(line, eq_pos + 1)
                     gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
                     gsub(/^[[:space:]]+|[[:space:]]+$/, "", val)
-                    # Strip trailing brace if present (handles "key = val }")
                     gsub(/[[:space:]]*\}[[:space:]]*$/, "", val)
                     if (key != "") {
-                        current_block = (depth > 0) ? block_stack[depth] : ""
+                        # RECONSTRUCT FULL NESTED PATH
+                        current_block = ""
+                        for (i = 1; i <= depth; i++) {
+                            if (i == 1) current_block = block_stack[i]
+                            else current_block = current_block " { " block_stack[i]
+                        }
+                        # Append closing braces for deep nesting to match "system { kernel }" style
+                        for (i = 1; i < depth; i++) {
+                            current_block = current_block " }"
+                        }
+                        
                         print key "|" current_block "=" val
                     }
                 }
             }
 
+            # Stack pop logic
             n = gsub(/\}/, "}", line)
             while (n > 0 && depth > 0) { depth--; n-- }
         }
@@ -249,32 +236,47 @@ find_key_line_in_block() {
     local block_name=$1 key_name=$2 file=$3
 
     LC_NUMERIC=C awk -v target_block="$block_name" -v target_key="$key_name" '
-    BEGIN { depth = 0; in_target = 0; target_depth = 0 }
+    BEGIN { depth = 0; }
     {
         clean = $0; sub(/#.*/, "", clean)
         tmpline = clean
+        
+        # Track depth and block stack
         while (match(tmpline, /[a-zA-Z0-9_.:-]+[[:space:]]*\{/)) {
             block_str = substr(tmpline, RSTART, RLENGTH)
             sub(/[[:space:]]*\{/, "", block_str)
             depth++
-            if (block_str == target_block && !in_target) {
-                in_target = 1; target_depth = depth
-            }
+            block_stack[depth] = block_str
             tmpline = substr(tmpline, RSTART + RLENGTH)
         }
-        if (in_target && clean ~ /=/) {
+
+        # Check for key match
+        if (clean ~ /=/) {
             eq_pos = index(clean, "=")
             if (eq_pos > 0) {
                 k = substr(clean, 1, eq_pos - 1)
                 gsub(/^[[:space:]]+|[[:space:]]+$/, "", k)
-                if (k == target_key) print NR
+                if (k == target_key) {
+                    # RECONSTRUCT CURRENT PATH TO COMPARE
+                    current_path = ""
+                    for (i = 1; i <= depth; i++) {
+                        if (i == 1) current_path = block_stack[i]
+                        else current_path = current_path " { " block_stack[i]
+                    }
+                    for (i = 1; i < depth; i++) {
+                        current_path = current_path " }"
+                    }
+
+                    if (current_path == target_block) {
+                        print NR
+                    }
+                }
             }
         }
+        
+        # Pop stack
         n = gsub(/\}/, "}", clean)
-        while (n > 0 && depth > 0) {
-            if (in_target && depth == target_depth) { in_target = 0; target_depth = 0 }
-            depth--; n--
-        }
+        while (n > 0 && depth > 0) { depth--; n-- }
     }
     ' "$file"
 }
@@ -288,9 +290,6 @@ write_value_to_file() {
     local safe_val safe_sed_key
     escape_sed_replacement "$new_val" safe_val
     escape_sed_pattern "$key" safe_sed_key
-
-    # NOTE: We intentionally keep a trailing space (\1${safe_val} ) 
-    # to prevent merging values with inline comments (e.g., key=val#comment).
     local sed_repl="\\1${safe_val} "
 
     if [[ -n "$block" ]]; then
@@ -298,7 +297,6 @@ write_value_to_file() {
         target_output=$(find_key_line_in_block "$block" "$key" "$CONFIG_FILE")
         [[ -z "$target_output" ]] && return 1
 
-        # Build a single sed script for all matching lines (atomic batch)
         local sed_script="" target_line
         while IFS= read -r target_line; do
             [[ ! "$target_line" =~ ^[0-9]+$ ]] && continue
@@ -328,12 +326,10 @@ load_tab_values() {
 
     for item in "${_ltv_items_ref[@]}"; do
         IFS='|' read -r key type block _ _ _ <<< "${ITEM_MAP["${CURRENT_TAB}::${item}"]}"
-
         val=${CONFIG_CACHE["${key}|${block}"]:-}
         if [[ -z "$val" && -z "$block" ]]; then
             val=${CONFIG_CACHE["${key}|"]:-}
         fi
-
         if [[ -z "$val" ]]; then
             VALUE_CACHE["${CURRENT_TAB}::${item}"]=$UNSET_MARKER
         else
@@ -366,12 +362,13 @@ modify_value() {
             ;;
         float)
             if [[ ! "$current" =~ ^-?[0-9]*\.?[0-9]+$ ]]; then current=${min:-0.0}; fi
+            # UPDATED: %.6g for better precision support
             new_val=$(LC_NUMERIC=C awk -v c="$current" -v dir="$direction" -v s="${step:-0.1}" \
                           -v mn="$min" -v mx="$max" 'BEGIN {
                 val = c + (dir * s)
                 if (mn != "" && val < mn) val = mn
                 if (mx != "" && val > mx) val = mx
-                printf "%.4g", val
+                printf "%.6g", val
             }')
             ;;
         bool)
@@ -382,17 +379,13 @@ modify_value() {
             IFS=',' read -r -a opts <<< "$min"
             local -i count=${#opts[@]} idx=0 i
             (( count == 0 )) && return 0
-
             for (( i = 0; i < count; i++ )); do
                 if [[ "${opts[i]}" == "$current" ]]; then idx=$i; break; fi
             done
-
             idx=$(( (idx + direction + count) % count ))
             new_val=${opts[idx]}
             ;;
-        *)
-            return 0
-            ;;
+        *) return 0 ;;
     esac
 
     if write_value_to_file "$key" "$new_val" "$block"; then
@@ -404,9 +397,7 @@ modify_value() {
 set_absolute_value() {
     local label=$1 new_val=$2
     local key type block
-
     IFS='|' read -r key type block _ _ _ <<< "${ITEM_MAP["${CURRENT_TAB}::${label}"]}"
-
     if write_value_to_file "$key" "$new_val" "$block"; then
         VALUE_CACHE["${CURRENT_TAB}::${label}"]=$new_val
         return 0
@@ -418,7 +409,6 @@ reset_defaults() {
     local -n _rd_items_ref="TAB_ITEMS_${CURRENT_TAB}"
     local item def_val
     local -i any_written=0
-
     for item in "${_rd_items_ref[@]}"; do
         def_val=${DEFAULTS["${CURRENT_TAB}::${item}"]:-}
         if [[ -n "$def_val" ]]; then
@@ -427,12 +417,9 @@ reset_defaults() {
             fi
         fi
     done
-
     (( any_written )) && post_write_action
     return 0
 }
-
-# --- UI Rendering ---
 
 draw_ui() {
     local buf="" pad_buf="" padded_item="" item val display
@@ -459,13 +446,11 @@ draw_ui() {
         local name=${TABS[i]}
         len=${#name}
         zone_start=$current_col
-
         if (( i == CURRENT_TAB )); then
             tab_line+="${C_CYAN}${C_INVERSE} ${name} ${C_RESET}${C_MAGENTA}│ "
         else
             tab_line+="${C_GREY} ${name} ${C_MAGENTA}│ "
         fi
-
         TAB_ZONES+=("${zone_start}:$(( zone_start + len + 1 ))")
         current_col=$(( current_col + len + 4 ))
     done
@@ -484,18 +469,15 @@ draw_ui() {
     count=${#_draw_items_ref[@]}
 
     if (( count == 0 )); then
-        SELECTED_ROW=0
-        SCROLL_OFFSET=0
+        SELECTED_ROW=0; SCROLL_OFFSET=0
     else
         (( SELECTED_ROW < 0 )) && SELECTED_ROW=0
         (( SELECTED_ROW >= count )) && SELECTED_ROW=$(( count - 1 ))
-
         if (( SELECTED_ROW < SCROLL_OFFSET )); then
             SCROLL_OFFSET=$SELECTED_ROW
         elif (( SELECTED_ROW >= SCROLL_OFFSET + MAX_DISPLAY_ROWS )); then
             SCROLL_OFFSET=$(( SELECTED_ROW - MAX_DISPLAY_ROWS + 1 ))
         fi
-
         local -i max_scroll=$(( count - MAX_DISPLAY_ROWS ))
         (( max_scroll < 0 )) && max_scroll=0
         (( SCROLL_OFFSET > max_scroll )) && SCROLL_OFFSET=$max_scroll
@@ -514,16 +496,13 @@ draw_ui() {
     for (( i = visible_start; i < visible_end; i++ )); do
         item=${_draw_items_ref[i]}
         val=${VALUE_CACHE["${CURRENT_TAB}::${item}"]:-${UNSET_MARKER}}
-
         case "$val" in
             true)              display="${C_GREEN}ON${C_RESET}" ;;
             false)             display="${C_RED}OFF${C_RESET}" ;;
             "$UNSET_MARKER")   display="${C_YELLOW}⚠ UNSET${C_RESET}" ;;
             *)                 display="${C_WHITE}${val}${C_RESET}" ;;
         esac
-
         printf -v padded_item "%-${ITEM_PADDING}s" "${item:0:${ITEM_PADDING}}"
-
         if (( i == SELECTED_ROW )); then
             buf+="${C_CYAN} ➤ ${C_INVERSE}${padded_item}${C_RESET} : ${display}${CLR_EOL}"$'\n'
         else
@@ -549,17 +528,13 @@ draw_ui() {
 
     buf+=$'\n'"${C_CYAN} [Tab] Category  [r] Reset  [←/→ h/l] Adjust  [↑/↓ j/k] Nav  [q] Quit${C_RESET}"$'\n'
     buf+="${C_CYAN} File: ${C_WHITE}${CONFIG_FILE}${C_RESET}${CLR_EOL}${CLR_EOS}"
-
     printf '%s' "$buf"
 }
-
-# --- Input Handling ---
 
 navigate() {
     local -i dir=$1
     local -n _nav_items_ref="TAB_ITEMS_${CURRENT_TAB}"
     local -i count=${#_nav_items_ref[@]}
-
     (( count == 0 )) && return 0
     SELECTED_ROW=$(( (SELECTED_ROW + dir + count) % count ))
 }
@@ -568,7 +543,6 @@ navigate_page() {
     local -i dir=$1
     local -n _navp_items_ref="TAB_ITEMS_${CURRENT_TAB}"
     local -i count=${#_navp_items_ref[@]}
-
     (( count == 0 )) && return 0
     SELECTED_ROW=$(( SELECTED_ROW + dir * MAX_DISPLAY_ROWS ))
     (( SELECTED_ROW < 0 )) && SELECTED_ROW=0
@@ -579,7 +553,6 @@ navigate_end() {
     local -i target=$1
     local -n _nave_items_ref="TAB_ITEMS_${CURRENT_TAB}"
     local -i count=${#_nave_items_ref[@]}
-
     (( count == 0 )) && return 0
     if (( target == 0 )); then SELECTED_ROW=0; else SELECTED_ROW=$(( count - 1 )); fi
 }
@@ -587,14 +560,12 @@ navigate_end() {
 adjust() {
     local -i dir=$1
     local -n _adj_items_ref="TAB_ITEMS_${CURRENT_TAB}"
-
     (( ${#_adj_items_ref[@]} == 0 )) && return 0
     modify_value "${_adj_items_ref[SELECTED_ROW]}" "$dir"
 }
 
 switch_tab() {
     local -i dir=${1:-1}
-
     CURRENT_TAB=$(( (CURRENT_TAB + dir + TAB_COUNT) % TAB_COUNT ))
     SELECTED_ROW=0
     SCROLL_OFFSET=0
@@ -616,35 +587,22 @@ handle_mouse() {
     local -i button x y i start end
     local type zone
 
-    # SGR mouse: input is like [<0;45;3M or [<64;10;5m
-    # Strip the leading [< to parse the numeric fields
     local body=${input#'[<'}
-    [[ "$body" == "$input" ]] && return 0  # No [< prefix found
-
+    [[ "$body" == "$input" ]] && return 0
     local terminator=${body: -1}
     [[ "$terminator" != "M" && "$terminator" != "m" ]] && return 0
-
     body=${body%[Mm]}
     local field1 field2 field3
     IFS=';' read -r field1 field2 field3 <<< "$body"
-
-    # Validate all fields are numeric
     [[ ! "$field1" =~ ^[0-9]+$ ]] && return 0
     [[ ! "$field2" =~ ^[0-9]+$ ]] && return 0
     [[ ! "$field3" =~ ^[0-9]+$ ]] && return 0
+    button=$field1; x=$field2; y=$field3
 
-    button=$field1
-    x=$field2
-    y=$field3
-
-    # Scroll wheel
     if (( button == 64 )); then navigate -1; return 0; fi
     if (( button == 65 )); then navigate 1; return 0; fi
-
-    # Only process press events (M = press, m = release)
     [[ "$terminator" != "M" ]] && return 0
 
-    # Tab bar click (row TAB_ROW)
     if (( y == TAB_ROW )); then
         for (( i = 0; i < TAB_COUNT; i++ )); do
             zone=${TAB_ZONES[i]}
@@ -654,12 +612,10 @@ handle_mouse() {
         done
     fi
 
-    # Item area click
-    local -n _mouse_items_ref="TAB_ITEMS_${CURRENT_TAB}"
-    local -i count=${#_mouse_items_ref[@]}
-
     if (( y >= ITEM_START_ROW && y < ITEM_START_ROW + MAX_DISPLAY_ROWS )); then
         local -i clicked_idx=$(( y - ITEM_START_ROW + SCROLL_OFFSET ))
+        local -n _mouse_items_ref="TAB_ITEMS_${CURRENT_TAB}"
+        local -i count=${#_mouse_items_ref[@]}
         if (( clicked_idx >= 0 && clicked_idx < count )); then
             SELECTED_ROW=$clicked_idx
             if (( x > ADJUST_THRESHOLD )); then
@@ -670,35 +626,31 @@ handle_mouse() {
     return 0
 }
 
-# --- Smart Escape Sequence Reader ---
-# Reads until a valid terminator is found, preventing sequence fragmentation.
-# Result is stored in the nameref variable passed as $1.
 read_escape_seq() {
     local -n _esc_out=$1
     local char
     _esc_out=""
-
     while IFS= read -rsn1 -t "$ESC_READ_TIMEOUT" char; do
         _esc_out+="$char"
         case "$_esc_out" in
-            '[Z')              return 0 ;; # Shift-Tab
-            O[A-Za-z])         return 0 ;; # SS3 sequences
-            '['*[A-Za-z~])     return 0 ;; # CSI sequences (arrows, mouse, function keys)
+            '[Z')              return 0 ;;
+            O[A-Za-z])         return 0 ;;
+            '['*[A-Za-z~])     return 0 ;;
         esac
     done
     return 0
 }
 
-# --- Main ---
-
 main() {
     if (( BASH_VERSINFO[0] < 5 )); then
         log_err "Bash 5.0+ required (found ${BASH_VERSION})"; exit 1
     fi
-
     if [[ ! -t 0 ]]; then
         log_err "Interactive terminal (TTY) required on stdin"; exit 1
     fi
+
+    # Auto-generate dummy config if missing
+    generate_dummy_config
 
     if [[ ! -f "$CONFIG_FILE" ]]; then log_err "Config not found: ${CONFIG_FILE}"; exit 1; fi
     if [[ ! -r "$CONFIG_FILE" ]]; then log_err "Config not readable: ${CONFIG_FILE}"; exit 1; fi
@@ -726,12 +678,9 @@ main() {
 
     while true; do
         draw_ui
-
         IFS= read -rsn1 key || break
-
         if [[ "$key" == $'\x1b' ]]; then
             read_escape_seq escape_seq
-
             case "$escape_seq" in
                 '[Z')                switch_tab -1 ;;
                 '[A'|'OA')           navigate -1 ;;
