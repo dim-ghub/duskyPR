@@ -6,10 +6,12 @@
 #              - Debloating: Replaces old edits instead of appending forever.
 #              - Interactive Auto-Correction (Logic Fixed for 'bind').
 #              - Smart Unbind Deduplication.
-# Version:     v23.2
+# Version:     v23.3
+# Engine Sync: Hardened with patterns from Dusky TUI Engine v3.9.1
 # ==============================================================================
 
 set -euo pipefail
+shopt -s extglob
 
 # --- Version Check (Bash 5.0+ required) ---
 if (( BASH_VERSINFO[0] < 5 )); then
@@ -47,10 +49,17 @@ declare -a TEMP_FILES=()
 cleanup() {
     local f
     for f in "${TEMP_FILES[@]}"; do
-        rm -f -- "$f"
+        rm -f -- "$f" 2>/dev/null || :
     done
 }
-trap cleanup EXIT INT TERM HUP
+
+# CRITICAL: Follows template pattern for signal handling.
+# EXIT runs cleanup. Signal traps just exit (which triggers EXIT).
+# This prevents double-cleanup and ensures correct exit codes.
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
 
 # Create a temp file and register for cleanup.
 make_temp() {
@@ -98,20 +107,17 @@ _is_unbind() {
 }
 
 # Split content by comma, preserving fields correctly.
-# FIXED: The original unconditionally removed the last element, which was wrong.
-#        We only remove the last element if it's genuinely empty (from trailing comma).
-#        Also fixed: must use if-statement to avoid set -e exit on false condition.
 _split_comma() {
     local -n _arr="$1"
     local str="$2"
     _arr=()
     local field=""
-    
+
     # Read comma-delimited fields. We append a comma to ensure the last field is read.
     while IFS= read -r -d ',' field; do
         _arr+=("$field")
     done <<< "${str},"
-    
+
     # Only remove the last element if it's empty (handles trailing commas in input).
     # CRITICAL: Must use if-statement, not [[ ]] && cmd, because with set -e,
     # a false [[ ]] would return exit code 1 and kill the script.
@@ -367,25 +373,25 @@ main() {
         if (( ${#parts[@]} >= 5 )) && [[ "$bind_type" == bind* ]]; then
             # Strip 'bind' prefix to isolate flags (e.g. "bindl" -> "l", "bind" -> "")
             local flags="${bind_type#bind}"
-            
+
             # Check if 'd' is missing from the remaining flags
             if [[ "$flags" != *d* ]]; then
                 local fixed_type="${bind_type}d"
                 printf '\n%s[AUTO-FIX]%s Missing "d" flag for description: "%s" → "%s"\n' "$CYAN" "$RESET" "$bind_type" "$fixed_type"
                 printf '           %s[Enter]%s Accept fix  %s[e]%s Edit  %s[w]%s Write anyway\n' "$BOLD" "$RESET" "$YELLOW" "$RESET" "$RED" "$RESET"
-                
+
                 local fix_choice
                 read -r -p "Select > " fix_choice
-                
+
                 case "${fix_choice,,}" in
-                    e*) 
+                    e*)
                         current_input="$user_line"
-                        continue 
+                        continue
                         ;;
-                    w*) 
+                    w*)
                         : # Do nothing, write as-is
                         ;;
-                    *) 
+                    *)
                         # Default: Accept Fix
                         user_line="${fixed_type} = ${content}"
                         ;;
@@ -479,7 +485,11 @@ main() {
         printf '%s\n' "$user_line"
     } >> "$temp_file"
 
-    mv -f -- "$temp_file" "$CUSTOM_CONF"
+    # CRITICAL: Use cat > target to preserve symlinks/inodes.
+    # Do NOT use mv, as it breaks dotfile symlink chains.
+    # Pattern adopted from Dusky TUI Engine v3.9.1.
+    cat -- "$temp_file" > "$CUSTOM_CONF"
+    rm -f -- "$temp_file"
 
     printf '\n%s[SUCCESS]%s Saved to %s\n' "$GREEN" "$RESET" "$CUSTOM_CONF"
 
