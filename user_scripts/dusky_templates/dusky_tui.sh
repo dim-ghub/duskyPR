@@ -1,32 +1,28 @@
 #!/usr/bin/env bash
 # -----------------------------------------------------------------------------
-# Dusky TUI Engine - Hybrid Master v3.6.1 (Architect Edition)
+# Dusky TUI Engine - Master v3.7.1
 # -----------------------------------------------------------------------------
 # Target: Arch Linux / Hyprland / UWSM / Wayland
 #
-# v3.6.1 CHANGELOG:
-#   - FIX: Corrected Bash nameref binding in mouse handler (logic error).
-#   - FIX: Adjusted sed regex to correctly handle '#' starting values (hex colors).
-#   - SAFETY: Added guard clause for invalid Bash identifiers in menu IDs.
-#
-# v3.6.0 CHANGELOG:
-#   - CRITICAL: Fixed "Trap" bug where q/Ctrl-C were ignored in submenus.
-#   - CRITICAL: Fixed Config Parser corrupting '#' based color values.
-#   - UX: Restored Mouse support in Submenus (was broken in v3.5.3).
-#   - UX: Restored 'Enter' key toggling items (if not a menu).
-#   - VISUAL: Fixed negative padding glitches on long menu titles.
+# v3.7.0 CHANGELOG:
+#   - PERF: Replaced O(n) ANSI stripping with O(1) Bash extglob.
+#   - REFACTOR: Unified Main and Detail view rendering engines.
+#   - FIX: Robust Sed escaping for regex characters.
+#   - SAFETY: Added `shopt -s extglob` for pattern matching safety.
+#   - RETAINED: Original robust mouse handling and input router.
 # -----------------------------------------------------------------------------
 
 set -euo pipefail
+shopt -s extglob
 
 # =============================================================================
 # ▼ USER CONFIGURATION (EDIT THIS SECTION) ▼
 # =============================================================================
 
 # POINT THIS TO YOUR REAL CONFIG FILE
-readonly CONFIG_FILE="${HOME}/.config/hypr/change_me.conf"
-readonly APP_TITLE="Input Config Editor"
-readonly APP_VERSION="v3.6.1 (Patched)"
+declare -r CONFIG_FILE="${HOME}/.config/hypr/change_me.conf"
+declare -r APP_TITLE="Input Config Editor"
+declare -r APP_VERSION="v3.7.1 (Refined)"
 
 # Dimensions & Layout
 declare -ri MAX_DISPLAY_ROWS=14
@@ -78,33 +74,33 @@ post_write_action() {
 # --- Pre-computed Constants ---
 declare _h_line_buf
 printf -v _h_line_buf '%*s' "$BOX_INNER_WIDTH" ''
-readonly H_LINE="${_h_line_buf// /─}"
+declare -r H_LINE="${_h_line_buf// /─}"
 unset _h_line_buf
 
 # --- ANSI Constants ---
-readonly C_RESET=$'\033[0m'
-readonly C_CYAN=$'\033[1;36m'
-readonly C_GREEN=$'\033[1;32m'
-readonly C_MAGENTA=$'\033[1;35m'
-readonly C_RED=$'\033[1;31m'
-readonly C_YELLOW=$'\033[1;33m'
-readonly C_WHITE=$'\033[1;37m'
-readonly C_GREY=$'\033[1;30m'
-readonly C_INVERSE=$'\033[7m'
-readonly CLR_EOL=$'\033[K'
-readonly CLR_EOS=$'\033[J'
-readonly CLR_SCREEN=$'\033[2J'
-readonly CURSOR_HOME=$'\033[H'
-readonly CURSOR_HIDE=$'\033[?25l'
-readonly CURSOR_SHOW=$'\033[?25h'
-readonly MOUSE_ON=$'\033[?1000h\033[?1002h\033[?1006h'
-readonly MOUSE_OFF=$'\033[?1000l\033[?1002l\033[?1006l'
+declare -r C_RESET=$'\033[0m'
+declare -r C_CYAN=$'\033[1;36m'
+declare -r C_GREEN=$'\033[1;32m'
+declare -r C_MAGENTA=$'\033[1;35m'
+declare -r C_RED=$'\033[1;31m'
+declare -r C_YELLOW=$'\033[1;33m'
+declare -r C_WHITE=$'\033[1;37m'
+declare -r C_GREY=$'\033[1;30m'
+declare -r C_INVERSE=$'\033[7m'
+declare -r CLR_EOL=$'\033[K'
+declare -r CLR_EOS=$'\033[J'
+declare -r CLR_SCREEN=$'\033[2J'
+declare -r CURSOR_HOME=$'\033[H'
+declare -r CURSOR_HIDE=$'\033[?25l'
+declare -r CURSOR_SHOW=$'\033[?25h'
+declare -r MOUSE_ON=$'\033[?1000h\033[?1002h\033[?1006h'
+declare -r MOUSE_OFF=$'\033[?1000l\033[?1002l\033[?1006l'
 
 # ANSI stripping regex pattern
-readonly _ESC=$'\033'
+declare -r _ESC=$'\033'
 
-readonly ESC_READ_TIMEOUT=0.05
-readonly UNSET_MARKER='«unset»'
+declare -r ESC_READ_TIMEOUT=0.05
+declare -r UNSET_MARKER='«unset»'
 
 # --- State Management ---
 declare -i SELECTED_ROW=0
@@ -150,7 +146,44 @@ trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-# --- Logic Helpers ---
+# --- String Helpers ---
+
+# Strips ANSI escape sequences from a string using Bash extglob (High Performance).
+# Sets REPLY to the stripped string.
+strip_ansi() {
+    local s="$1"
+    # Remove CSI sequences: ESC [ ... <final byte>
+    # Remove OSC sequences: ESC ] ... (ST or BEL)
+    while [[ "$s" == *$'\033'* ]]; do
+        local prefix="${s%%$'\033'*}"
+        local rest="${s#"$prefix"}"
+        rest="${rest:1}" # skip ESC
+        if [[ "$rest" == '['* ]]; then
+            # CSI: skip until final byte [A-Za-z~]
+            rest="${rest:1}"
+            while [[ -n "$rest" && ! "$rest" == [A-Za-z~]* ]]; do
+                rest="${rest:1}"
+            done
+            [[ -n "$rest" ]] && rest="${rest:1}"
+        elif [[ "$rest" == ']'* ]]; then
+            # OSC: skip until ST (\033\\) or BEL (\007)
+            rest="${rest:1}"
+            while [[ -n "$rest" && "$rest" != $'\033\\'* && "$rest" != $'\007'* ]]; do
+                rest="${rest:1}"
+            done
+            if [[ "$rest" == $'\033\\'* ]]; then
+                rest="${rest:2}"
+            elif [[ "$rest" == $'\007'* ]]; then
+                rest="${rest:1}"
+            fi
+        else
+            # Two-byte escape fallback
+            [[ -n "$rest" ]] && rest="${rest:1}"
+        fi
+        s="${prefix}${rest}"
+    done
+    REPLY="$s"
+}
 
 escape_sed_replacement() {
     local _esc_input=$1
@@ -190,7 +223,7 @@ register() {
     esac
 
     ITEM_MAP["${tab_idx}::${label}"]=$config
-    [[ -n "$default_val" ]] && DEFAULTS["${tab_idx}::${label}"]=$default_val
+    if [[ -n "$default_val" ]]; then DEFAULTS["${tab_idx}::${label}"]=$default_val; fi
     local -n _reg_tab_ref="TAB_ITEMS_${tab_idx}"
     _reg_tab_ref+=("$label")
 }
@@ -199,44 +232,21 @@ register_child() {
     local parent_id=$1
     local label=$2 config=$3 default_val=${4:-}
 
-    # SAFETY: Ensure parent_id is a valid bash identifier to prevent crashing 'declare'
+    # SAFETY: Ensure parent_id is a valid bash identifier
     if [[ ! "$parent_id" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]]; then
-        log_err "Register Error: Menu ID '${parent_id}' contains invalid characters. Use alphanumeric/underscores only."
+        log_err "Register Error: Menu ID '${parent_id}' contains invalid characters."
         exit 1
     fi
     
-    # Initialize submenu array if it doesn't exist
     if ! declare -p "SUBMENU_ITEMS_${parent_id}" &>/dev/null; then
         declare -ga "SUBMENU_ITEMS_${parent_id}=()"
     fi
 
-    # Map item using Parent ID as context
     ITEM_MAP["${parent_id}::${label}"]=$config
-    [[ -n "$default_val" ]] && DEFAULTS["${parent_id}::${label}"]=$default_val
+    if [[ -n "$default_val" ]]; then DEFAULTS["${parent_id}::${label}"]=$default_val; fi
     
     local -n _child_ref="SUBMENU_ITEMS_${parent_id}"
     _child_ref+=("$label")
-}
-
-strip_ansi() {
-    local s="$1"
-    local result=""
-    while [[ -n "$s" ]]; do
-        if [[ "$s" == "${_ESC}"* ]]; then
-            s="${s:1}"
-            if [[ "$s" == "["* ]]; then
-                s="${s:1}"
-                while [[ -n "$s" && ! "$s" =~ ^[a-zA-Z] ]]; do s="${s:1}"; done
-                [[ -n "$s" ]] && s="${s:1}"
-            else
-                [[ -n "$s" ]] && s="${s:1}"
-            fi
-        else
-            result+="${s:0:1}"
-            s="${s:1}"
-        fi
-    done
-    REPLY="$result"
 }
 
 populate_config_cache() {
@@ -244,7 +254,7 @@ populate_config_cache() {
     local key_part value_part key_name
 
     while IFS='=' read -r key_part value_part || [[ -n ${key_part:-} ]]; do
-        [[ -z ${key_part:-} ]] && continue
+        if [[ -z ${key_part:-} ]]; then continue; fi
         CONFIG_CACHE["$key_part"]=$value_part
         key_name=${key_part%%|*}
         if [[ -z ${CONFIG_CACHE["${key_name}|"]:-} ]]; then
@@ -255,9 +265,7 @@ populate_config_cache() {
         /^[[:space:]]*#/ { next }
         {
             line = $0
-            
             tmpline = line
-            # Remove blocks { ... } from processing
             while (match(tmpline, /[a-zA-Z0-9_.:-]+[[:space:]]*\{/)) {
                 block_str = substr(tmpline, RSTART, RLENGTH)
                 sub(/[[:space:]]*\{/, "", block_str)
@@ -271,20 +279,9 @@ populate_config_cache() {
                     key = substr(line, 1, eq_pos - 1)
                     val = substr(line, eq_pos + 1)
                     gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
-                    
-                    # FIX: Trim whitespace BEFORE comment stripping.
-                    # This ensures values like " #ff0000" (leading space) are treated as "#ff0000"
-                    # instead of being mistaken for a comment " #...".
                     gsub(/^[[:space:]]+|[[:space:]]+$/, "", val)
-
-                    # Safe comment stripping:
-                    # Now that we trimmed the leading space, we only strip if there is
-                    # a space followed by a # INSIDE the value (e.g. "true # comment")
                     sub(/[[:space:]]+#.*$/, "", val)
-                    
-                    # Final trim (just in case stripping left trailing spaces)
                     gsub(/^[[:space:]]+|[[:space:]]+$/, "", val)
-                    
                     if (key != "") {
                         current_block = (depth > 0) ? block_stack[depth] : ""
                         print key "|" current_block "=" val
@@ -302,8 +299,6 @@ find_key_line_in_block() {
     LC_NUMERIC=C awk -v target_block="$block_name" -v target_key="$key_name" '
     BEGIN { depth = 0; in_target = 0; target_depth = 0; found = 0 }
     {
-        line = $0; 
-        # Only strip full-line comments or trailing comments safely
         clean = $0
         sub(/^[[:space:]]*#.*/, "", clean)
         sub(/[[:space:]]+#.*$/, "", clean)
@@ -337,7 +332,7 @@ find_key_line_in_block() {
 write_value_to_file() {
     local key=$1 new_val=$2 block=${3:-}
     local current_val=${CONFIG_CACHE["$key|$block"]:-}
-    [[ "$current_val" == "$new_val" ]] && return 0
+    if [[ "$current_val" == "$new_val" ]]; then return 0; fi
 
     local safe_val safe_sed_key
     escape_sed_replacement "$new_val" safe_val
@@ -418,9 +413,9 @@ modify_value() {
         int)
             if [[ ! "$current" =~ ^-?[0-9]+$ ]]; then current=${min:-0}; fi
 
-            # --- FIX: Sanitize Octal (strip leading zeros to force Base-10) ---
+            # Force Base-10 on the number (fixes 008/009 crash)
             local clean_val=${current#-}    # Remove negative sign if present
-            clean_val=$(( 10#$clean_val ))  # Force Base-10 on the number (fixes 008/009 crash)
+            clean_val=$(( 10#$clean_val ))  
             
             # Re-apply negative if original had it
             if [[ "$current" == -* ]]; then
@@ -502,22 +497,120 @@ reset_defaults() {
     return 0
 }
 
-# --- UI Rendering ---
+# --- UI Rendering Engine (Shared) ---
+
+# Computes scroll window and clamps SELECTED_ROW
+# Sets: SCROLL_OFFSET, SELECTED_ROW, _vis_start, _vis_end
+compute_scroll_window() {
+    local -i count=$1
+    if (( count == 0 )); then
+        SELECTED_ROW=0; SCROLL_OFFSET=0
+        _vis_start=0; _vis_end=0
+        return
+    fi
+
+    if (( SELECTED_ROW < 0 )); then SELECTED_ROW=0; fi
+    if (( SELECTED_ROW >= count )); then SELECTED_ROW=$(( count - 1 )); fi
+
+    if (( SELECTED_ROW < SCROLL_OFFSET )); then
+        SCROLL_OFFSET=$SELECTED_ROW
+    elif (( SELECTED_ROW >= SCROLL_OFFSET + MAX_DISPLAY_ROWS )); then
+        SCROLL_OFFSET=$(( SELECTED_ROW - MAX_DISPLAY_ROWS + 1 ))
+    fi
+
+    local -i max_scroll=$(( count - MAX_DISPLAY_ROWS ))
+    if (( max_scroll < 0 )); then max_scroll=0; fi
+    if (( SCROLL_OFFSET > max_scroll )); then SCROLL_OFFSET=$max_scroll; fi
+
+    _vis_start=$SCROLL_OFFSET
+    _vis_end=$(( SCROLL_OFFSET + MAX_DISPLAY_ROWS ))
+    if (( _vis_end > count )); then _vis_end=$count; fi
+}
+
+# Renders the scroll indicators (above/below items)
+render_scroll_indicator() {
+    local -n _rsi_buf=$1
+    local position=$2
+    local -i count=$3 boundary=$4
+
+    if [[ "$position" == "above" ]]; then
+        if (( SCROLL_OFFSET > 0 )); then
+            _rsi_buf+="${C_GREY}    ▲ (more above)${CLR_EOL}${C_RESET}"$'\n'
+        else
+            _rsi_buf+="${CLR_EOL}"$'\n'
+        fi
+    else
+        # "below"
+        if (( count > MAX_DISPLAY_ROWS )); then
+            local position_info="[$(( SELECTED_ROW + 1 ))/${count}]"
+            if (( boundary < count )); then
+                _rsi_buf+="${C_GREY}    ▼ (more below) ${position_info}${CLR_EOL}${C_RESET}"$'\n'
+            else
+                _rsi_buf+="${C_GREY}                   ${position_info}${CLR_EOL}${C_RESET}"$'\n'
+            fi
+        else
+            _rsi_buf+="${CLR_EOL}"$'\n'
+        fi
+    fi
+}
+
+# Shared item renderer
+render_item_list() {
+    local -n _ril_buf=$1
+    local -n _ril_items=$2
+    local _ril_ctx=$3
+    local -i _ril_vs=$4 _ril_ve=$5
+
+    local -i ri
+    local item val display type config padded_item
+
+    for (( ri = _ril_vs; ri < _ril_ve; ri++ )); do
+        item=${_ril_items[ri]}
+        val=${VALUE_CACHE["${_ril_ctx}::${item}"]:-${UNSET_MARKER}}
+        config=${ITEM_MAP["${_ril_ctx}::${item}"]}
+        IFS='|' read -r _ type _ _ _ _ <<< "$config"
+
+        case "$type" in
+            menu) display="${C_YELLOW}[+] Open Menu ...${C_RESET}" ;;
+            *)
+                case "$val" in
+                    true)              display="${C_GREEN}ON${C_RESET}" ;;
+                    false)             display="${C_RED}OFF${C_RESET}" ;;
+                    "$UNSET_MARKER")   display="${C_YELLOW}⚠ UNSET${C_RESET}" ;;
+                    *)                 display="${C_WHITE}${val}${C_RESET}" ;;
+                esac
+                ;;
+        esac
+
+        printf -v padded_item "%-${ITEM_PADDING}s" "${item:0:${ITEM_PADDING}}"
+        if (( ri == SELECTED_ROW )); then
+            _ril_buf+="${C_CYAN} ➤ ${C_INVERSE}${padded_item}${C_RESET} : ${display}${CLR_EOL}"$'\n'
+        else
+            _ril_buf+="    ${padded_item} : ${display}${CLR_EOL}"$'\n'
+        fi
+    done
+
+    # Fill empty rows
+    local -i rows_rendered=$(( _ril_ve - _ril_vs ))
+    for (( ri = rows_rendered; ri < MAX_DISPLAY_ROWS; ri++ )); do
+        _ril_buf+="${CLR_EOL}"$'\n'
+    done
+}
 
 draw_main_view() {
-    local buf="" pad_buf="" padded_item="" item val display type config
+    local buf="" pad_buf=""
     local -i i current_col=3 zone_start len count pad_needed
-    local -i visible_len left_pad right_pad
-    local -i visible_start visible_end
+    local -i left_pad right_pad vis_len
+    local -i _vis_start _vis_end
 
     buf+="${CURSOR_HOME}"
     buf+="${C_MAGENTA}┌${H_LINE}┐${C_RESET}"$'\n'
 
-    strip_ansi "$APP_TITLE"; local t_len=${#REPLY}
-    strip_ansi "$APP_VERSION"; local v_len=${#REPLY}
-    visible_len=$(( t_len + v_len + 1 ))
-    left_pad=$(( (BOX_INNER_WIDTH - visible_len) / 2 ))
-    right_pad=$(( BOX_INNER_WIDTH - visible_len - left_pad ))
+    strip_ansi "$APP_TITLE"; local -i t_len=${#REPLY}
+    strip_ansi "$APP_VERSION"; local -i v_len=${#REPLY}
+    vis_len=$(( t_len + v_len + 1 ))
+    left_pad=$(( (BOX_INNER_WIDTH - vis_len) / 2 ))
+    right_pad=$(( BOX_INNER_WIDTH - vis_len - left_pad ))
 
     printf -v pad_buf '%*s' "$left_pad" ''
     buf+="${C_MAGENTA}│${pad_buf}${C_WHITE}${APP_TITLE} ${C_CYAN}${APP_VERSION}${C_MAGENTA}"
@@ -541,8 +634,7 @@ draw_main_view() {
     done
 
     pad_needed=$(( BOX_INNER_WIDTH - current_col + 2 ))
-    # FIX: Visual safety - ensure padding is not negative
-    (( pad_needed < 0 )) && pad_needed=0
+    if (( pad_needed < 0 )); then pad_needed=0; fi
     
     if (( pad_needed > 0 )); then
         printf -v pad_buf '%*s' "$pad_needed" ''
@@ -553,76 +645,15 @@ draw_main_view() {
     buf+="${tab_line}"$'\n'
     buf+="${C_MAGENTA}└${H_LINE}┘${C_RESET}"$'\n'
 
-    local -n _draw_items_ref="TAB_ITEMS_${CURRENT_TAB}"
+    # Items
+    local items_var="TAB_ITEMS_${CURRENT_TAB}"
+    local -n _draw_items_ref="$items_var"
     count=${#_draw_items_ref[@]}
 
-    # Scroll Logic
-    if (( count == 0 )); then
-        SELECTED_ROW=0; SCROLL_OFFSET=0
-    else
-        (( SELECTED_ROW < 0 )) && SELECTED_ROW=0
-        (( SELECTED_ROW >= count )) && SELECTED_ROW=$(( count - 1 ))
-        if (( SELECTED_ROW < SCROLL_OFFSET )); then
-            SCROLL_OFFSET=$SELECTED_ROW
-        elif (( SELECTED_ROW >= SCROLL_OFFSET + MAX_DISPLAY_ROWS )); then
-            SCROLL_OFFSET=$(( SELECTED_ROW - MAX_DISPLAY_ROWS + 1 ))
-        fi
-        local -i max_scroll=$(( count - MAX_DISPLAY_ROWS ))
-        (( max_scroll < 0 )) && max_scroll=0
-        (( SCROLL_OFFSET > max_scroll )) && SCROLL_OFFSET=$max_scroll
-    fi
-
-    visible_start=$SCROLL_OFFSET
-    visible_end=$(( SCROLL_OFFSET + MAX_DISPLAY_ROWS ))
-    (( visible_end > count )) && visible_end=$count
-
-    if (( SCROLL_OFFSET > 0 )); then
-        buf+="${C_GREY}    ▲ (more above)${CLR_EOL}${C_RESET}"$'\n'
-    else
-        buf+="${CLR_EOL}"$'\n'
-    fi
-
-    for (( i = visible_start; i < visible_end; i++ )); do
-        item=${_draw_items_ref[i]}
-        val=${VALUE_CACHE["${CURRENT_TAB}::${item}"]:-${UNSET_MARKER}}
-        config=${ITEM_MAP["${CURRENT_TAB}::${item}"]}
-        IFS='|' read -r _ type _ _ _ _ <<< "$config"
-
-        case "$type" in
-            menu) display="${C_YELLOW}[+] Open Menu ...${C_RESET}" ;;
-            *)
-                case "$val" in
-                    true)              display="${C_GREEN}ON${C_RESET}" ;;
-                    false)             display="${C_RED}OFF${C_RESET}" ;;
-                    "$UNSET_MARKER")   display="${C_YELLOW}⚠ UNSET${C_RESET}" ;;
-                    *)                 display="${C_WHITE}${val}${C_RESET}" ;;
-                esac
-                ;;
-        esac
-
-        printf -v padded_item "%-${ITEM_PADDING}s" "${item:0:${ITEM_PADDING}}"
-        if (( i == SELECTED_ROW )); then
-            buf+="${C_CYAN} ➤ ${C_INVERSE}${padded_item}${C_RESET} : ${display}${CLR_EOL}"$'\n'
-        else
-            buf+="    ${padded_item} : ${display}${CLR_EOL}"$'\n'
-        fi
-    done
-
-    local -i rows_rendered=$(( visible_end - visible_start ))
-    for (( i = rows_rendered; i < MAX_DISPLAY_ROWS; i++ )); do
-        buf+="${CLR_EOL}"$'\n'
-    done
-
-    if (( count > MAX_DISPLAY_ROWS )); then
-        local position_info="[$(( SELECTED_ROW + 1 ))/${count}]"
-        if (( visible_end < count )); then
-            buf+="${C_GREY}    ▼ (more below) ${position_info}${CLR_EOL}${C_RESET}"$'\n'
-        else
-            buf+="${C_GREY}                   ${position_info}${CLR_EOL}${C_RESET}"$'\n'
-        fi
-    else
-        buf+="${CLR_EOL}"$'\n'
-    fi
+    compute_scroll_window "$count"
+    render_scroll_indicator buf "above" "$count" "$_vis_start"
+    render_item_list buf _draw_items_ref "${CURRENT_TAB}" "$_vis_start" "$_vis_end"
+    render_scroll_indicator buf "below" "$count" "$_vis_end"
 
     buf+=$'\n'"${C_CYAN} [Tab] Category  [r] Reset  [←/→ h/l] Adjust  [Enter] Action  [q] Quit${C_RESET}"$'\n'
     buf+="${C_CYAN} File: ${C_WHITE}${CONFIG_FILE}${C_RESET}${CLR_EOL}${CLR_EOS}"
@@ -630,19 +661,20 @@ draw_main_view() {
 }
 
 draw_detail_view() {
-    local buf="" pad_buf="" padded_item="" item val display type config
-    local -i i count pad_needed visible_start visible_end
-    local -i left_pad right_pad
+    local buf="" pad_buf=""
+    local -i count pad_needed
+    local -i left_pad right_pad vis_len
+    local -i _vis_start _vis_end
     
-    # 1. Header (Same Height as Main)
+    # 1. Header
     buf+="${CURSOR_HOME}"
     buf+="${C_MAGENTA}┌${H_LINE}┐${C_RESET}${CLR_EOL}"$'\n'
     
     local title=" DETAIL VIEW "
     local sub=" ${CURRENT_MENU_ID} "
-    strip_ansi "$title"; local t_len=${#REPLY}
-    strip_ansi "$sub"; local s_len=${#REPLY}
-    local vis_len=$(( t_len + s_len ))
+    strip_ansi "$title"; local -i t_len=${#REPLY}
+    strip_ansi "$sub"; local -i s_len=${#REPLY}
+    vis_len=$(( t_len + s_len ))
     left_pad=$(( (BOX_INNER_WIDTH - vis_len) / 2 ))
     right_pad=$(( BOX_INNER_WIDTH - vis_len - left_pad ))
 
@@ -651,85 +683,27 @@ draw_detail_view() {
     printf -v pad_buf '%*s' "$right_pad" ''
     buf+="${pad_buf}│${C_RESET}${CLR_EOL}"$'\n'
     
-    # Breadcrumb line (replaces Tab line)
+    # Breadcrumb
     local breadcrumb=" « Back to ${TABS[CURRENT_TAB]}"
-    strip_ansi "$breadcrumb"; local b_len=${#REPLY}
+    strip_ansi "$breadcrumb"; local -i b_len=${#REPLY}
     pad_needed=$(( BOX_INNER_WIDTH - b_len ))
-    # FIX: Visual safety
-    (( pad_needed < 0 )) && pad_needed=0
+    if (( pad_needed < 0 )); then pad_needed=0; fi
     
     printf -v pad_buf '%*s' "$pad_needed" ''
     
     buf+="${C_MAGENTA}│${C_CYAN}${breadcrumb}${C_RESET}${pad_buf}${C_MAGENTA}│${C_RESET}${CLR_EOL}"$'\n'
     buf+="${C_MAGENTA}└${H_LINE}┘${C_RESET}${CLR_EOL}"$'\n'
     
-    # 2. Items (Logic copied from draw_main_view, targeting SUBMENU)
-    local -n _detail_items_ref="SUBMENU_ITEMS_${CURRENT_MENU_ID}"
+    # Items
+    local items_var="SUBMENU_ITEMS_${CURRENT_MENU_ID}"
+    local -n _detail_items_ref="$items_var"
     count=${#_detail_items_ref[@]}
 
-    if (( count == 0 )); then
-        SELECTED_ROW=0; SCROLL_OFFSET=0
-    else
-        (( SELECTED_ROW < 0 )) && SELECTED_ROW=0
-        (( SELECTED_ROW >= count )) && SELECTED_ROW=$(( count - 1 ))
-        if (( SELECTED_ROW < SCROLL_OFFSET )); then
-            SCROLL_OFFSET=$SELECTED_ROW
-        elif (( SELECTED_ROW >= SCROLL_OFFSET + MAX_DISPLAY_ROWS )); then
-            SCROLL_OFFSET=$(( SELECTED_ROW - MAX_DISPLAY_ROWS + 1 ))
-        fi
-        local -i max_scroll=$(( count - MAX_DISPLAY_ROWS ))
-        (( max_scroll < 0 )) && max_scroll=0
-        (( SCROLL_OFFSET > max_scroll )) && SCROLL_OFFSET=$max_scroll
-    fi
+    compute_scroll_window "$count"
+    render_scroll_indicator buf "above" "$count" "$_vis_start"
+    render_item_list buf _detail_items_ref "${CURRENT_MENU_ID}" "$_vis_start" "$_vis_end"
+    render_scroll_indicator buf "below" "$count" "$_vis_end"
 
-    visible_start=$SCROLL_OFFSET
-    visible_end=$(( SCROLL_OFFSET + MAX_DISPLAY_ROWS ))
-    (( visible_end > count )) && visible_end=$count
-
-    # Spacer Row (Matches Main View 'more above' line)
-    if (( SCROLL_OFFSET > 0 )); then
-        buf+="${C_GREY}    ▲ (more above)${CLR_EOL}${C_RESET}"$'\n'
-    else
-        buf+="${CLR_EOL}"$'\n'
-    fi
-
-    for (( i = visible_start; i < visible_end; i++ )); do
-        item=${_detail_items_ref[i]}
-        val=${VALUE_CACHE["${CURRENT_MENU_ID}::${item}"]:-${UNSET_MARKER}}
-        
-        case "$val" in
-            true)              display="${C_GREEN}ON${C_RESET}" ;;
-            false)             display="${C_RED}OFF${C_RESET}" ;;
-            "$UNSET_MARKER")   display="${C_YELLOW}⚠ UNSET${C_RESET}" ;;
-            *)                 display="${C_WHITE}${val}${C_RESET}" ;;
-        esac
-
-        printf -v padded_item "%-${ITEM_PADDING}s" "${item:0:${ITEM_PADDING}}"
-        if (( i == SELECTED_ROW )); then
-            buf+="${C_CYAN} ➤ ${C_INVERSE}${padded_item}${C_RESET} : ${display}${CLR_EOL}"$'\n'
-        else
-            buf+="    ${padded_item} : ${display}${CLR_EOL}"$'\n'
-        fi
-    done
-
-    # Fill remaining rows
-    local -i rows_rendered=$(( visible_end - visible_start ))
-    for (( i = rows_rendered; i < MAX_DISPLAY_ROWS; i++ )); do
-        buf+="${CLR_EOL}"$'\n'
-    done
-
-    # Footer Info
-    if (( count > MAX_DISPLAY_ROWS )); then
-        local position_info="[$(( SELECTED_ROW + 1 ))/${count}]"
-        if (( visible_end < count )); then
-            buf+="${C_GREY}    ▼ (more below) ${position_info}${CLR_EOL}${C_RESET}"$'\n'
-        else
-            buf+="${C_GREY}                   ${position_info}${CLR_EOL}${C_RESET}"$'\n'
-        fi
-    else
-        buf+="${CLR_EOL}"$'\n'
-    fi
-    
     buf+=$'\n'"${C_CYAN} [Esc] Back  [r] Reset  [←/→ h/l] Adjust  [Enter] Toggle  [q] Quit${C_RESET}${CLR_EOL}"$'\n'
     buf+="${C_CYAN} Submenu: ${C_WHITE}${CURRENT_MENU_ID}${C_RESET}${CLR_EOL}${CLR_EOS}"
     printf '%s' "$buf"
@@ -750,7 +724,7 @@ navigate() {
     get_active_context
     local -n _nav_items_ref="$REPLY_REF"
     local -i count=${#_nav_items_ref[@]}
-    (( count == 0 )) && return 0
+    if (( count == 0 )); then return 0; fi
     SELECTED_ROW=$(( (SELECTED_ROW + dir + count) % count ))
 }
 
@@ -760,7 +734,7 @@ navigate_page() {
     get_active_context
     local -n _navp_items_ref="$REPLY_REF"
     local -i count=${#_navp_items_ref[@]}
-    (( count == 0 )) && return 0
+    if (( count == 0 )); then return 0; fi
     SELECTED_ROW=$(( SELECTED_ROW + dir * MAX_DISPLAY_ROWS ))
     if (( SELECTED_ROW < 0 )); then SELECTED_ROW=0; fi
     if (( SELECTED_ROW >= count )); then SELECTED_ROW=$(( count - 1 )); fi
@@ -772,7 +746,7 @@ navigate_end() {
     get_active_context
     local -n _nave_items_ref="$REPLY_REF"
     local -i count=${#_nave_items_ref[@]}
-    (( count == 0 )) && return 0
+    if (( count == 0 )); then return 0; fi
     if (( target == 0 )); then SELECTED_ROW=0; else SELECTED_ROW=$(( count - 1 )); fi
 }
 
@@ -781,7 +755,7 @@ adjust() {
     local REPLY_REF REPLY_CTX
     get_active_context
     local -n _adj_items_ref="$REPLY_REF"
-    (( ${#_adj_items_ref[@]} == 0 )) && return 0
+    if (( ${#_adj_items_ref[@]} == 0 )); then return 0; fi
     modify_value "${_adj_items_ref[SELECTED_ROW]}" "$dir"
 }
 
@@ -805,7 +779,7 @@ set_tab() {
 
 check_drilldown() {
     local -n _dd_items_ref="TAB_ITEMS_${CURRENT_TAB}"
-    (( ${#_dd_items_ref[@]} == 0 )) && return 1
+    if (( ${#_dd_items_ref[@]} == 0 )); then return 1; fi
     
     local item="${_dd_items_ref[SELECTED_ROW]}"
     local config="${ITEM_MAP["${CURRENT_TAB}::${item}"]}"
@@ -837,27 +811,24 @@ go_back() {
 
 handle_mouse() {
     local input=$1
-    # FIX: Remove this line that disabled mouse in submenus
-    # if (( CURRENT_VIEW != 0 )); then return 0; fi
-
     local -i button x y i start end
     local type zone
 
     local body=${input#'[<'}
-    [[ "$body" == "$input" ]] && return 0
+    if [[ "$body" == "$input" ]]; then return 0; fi
     local terminator=${body: -1}
-    [[ "$terminator" != "M" && "$terminator" != "m" ]] && return 0
+    if [[ "$terminator" != "M" && "$terminator" != "m" ]]; then return 0; fi
     body=${body%[Mm]}
     local field1 field2 field3
     IFS=';' read -r field1 field2 field3 <<< "$body"
-    [[ ! "$field1" =~ ^[0-9]+$ ]] && return 0
-    [[ ! "$field2" =~ ^[0-9]+$ ]] && return 0
-    [[ ! "$field3" =~ ^[0-9]+$ ]] && return 0
+    if [[ ! "$field1" =~ ^[0-9]+$ ]]; then return 0; fi
+    if [[ ! "$field2" =~ ^[0-9]+$ ]]; then return 0; fi
+    if [[ ! "$field3" =~ ^[0-9]+$ ]]; then return 0; fi
     button=$field1; x=$field2; y=$field3
 
     if (( button == 64 )); then navigate -1; return 0; fi
     if (( button == 65 )); then navigate 1; return 0; fi
-    [[ "$terminator" != "M" ]] && return 0
+    if [[ "$terminator" != "M" ]]; then return 0; fi
 
     if (( y == TAB_ROW )); then
         if (( CURRENT_VIEW == 0 )); then
@@ -868,8 +839,6 @@ handle_mouse() {
                 if (( x >= start && x <= end )); then set_tab "$i"; return 0; fi
             done
         else
-            # In detail view, clicking the header/breadcrumb could go back
-            # Breadcrumb line is roughly the TAB_ROW
             go_back
             return 0
         fi
@@ -879,9 +848,6 @@ handle_mouse() {
     if (( y >= effective_start && y < effective_start + MAX_DISPLAY_ROWS )); then
         local -i clicked_idx=$(( y - effective_start + SCROLL_OFFSET ))
         
-        # FIX: Resolve target variable name FIRST, then declare nameref.
-        # This prevents the Bash behavior where assigning to an unbound nameref
-        # assigns the string to the ref variable itself rather than pointing to the target.
         local _target_var_name
         if (( CURRENT_VIEW == 0 )); then
              _target_var_name="TAB_ITEMS_${CURRENT_TAB}"
@@ -896,16 +862,12 @@ handle_mouse() {
             SELECTED_ROW=$clicked_idx
             if (( x > ADJUST_THRESHOLD )); then
                 if (( button == 0 )); then
-                    # Left Click Logic:
-                    # If in Main View (0), try check_drilldown first to enter menus.
-                    # If check_drilldown fails (not a menu), or we are in a submenu, fall back to adjust 1.
                     if (( CURRENT_VIEW == 0 )); then
                         check_drilldown || adjust 1
                     else
                         adjust 1
                     fi
                 else
-                    # Right Click Logic
                     adjust -1
                 fi
             fi
@@ -957,8 +919,6 @@ handle_key_main() {
         G)              navigate_end 1 ;;
         $'\t')          switch_tab 1 ;;
         r|R)            reset_defaults ;;
-        # FIX: Restored Enter key behavior. 
-        # If drilldown fails (not a menu), perform 'adjust 1' (toggle/increment).
         ''|$'\n')       check_drilldown || adjust 1 ;;
         q|Q|$'\x03')    exit 0 ;;
     esac
@@ -975,12 +935,11 @@ handle_key_detail() {
         '[6~')               navigate_page 1; return ;;
         '[H'|'[1~')          navigate_end 0; return ;;
         '[F'|'[4~')          navigate_end 1; return ;;
-        '['*'<'*[Mm])        handle_mouse "$key"; return ;; # FIX: Mouse added
+        '['*'<'*[Mm])        handle_mouse "$key"; return ;;
     esac
 
     case "$key" in
         ESC)
-            # Return to Main View
             go_back
             ;;
         k|K)            navigate -1 ;;
@@ -990,8 +949,7 @@ handle_key_detail() {
         g)              navigate_end 0 ;;
         G)              navigate_end 1 ;;
         r|R)            reset_defaults ;;
-        ''|$'\n')       adjust 1 ;; # FIX: Added Enter to toggle
-        # FIX: Added Quit keys to detail view
+        ''|$'\n')       adjust 1 ;;
         q|Q|$'\x03')    exit 0 ;;
     esac
 }
