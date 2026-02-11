@@ -204,6 +204,13 @@ register() {
     if [[ -n "$default_val" ]]; then DEFAULTS["${tab_idx}::${label}"]=$default_val; fi
     local -n _reg_tab_ref="TAB_ITEMS_${tab_idx}"
     _reg_tab_ref+=("$label")
+
+    # FIX: Auto-initialize submenu array to prevent 'unbound variable' crash on empty menus
+    if [[ "$type" == "menu" ]]; then
+        if ! declare -p "SUBMENU_ITEMS_${key}" &>/dev/null; then
+            declare -ga "SUBMENU_ITEMS_${key}=()"
+        fi
+    fi
 }
 
 register_child() {
