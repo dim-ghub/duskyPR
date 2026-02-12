@@ -1,9 +1,22 @@
 #!/usr/bin/env bash
 # -----------------------------------------------------------------------------
-# Dusky TUI Engine - Master v3.9.1
+# Dusky TUI Engine - Master v3.9.2
 # -----------------------------------------------------------------------------
 # Target: Arch Linux / Hyprland / UWSM / Wayland
 #
+# v3.9.2 CHANGELOG:
+#   - FIX: Guarded bare (( any_written )) in reset_defaults() against set -e.
+#     Bare (( expr )) returns exit code 1 when expr evaluates to 0, which
+#     under set -e causes immediate script termination. Added || : guard.
+#     This is the same class of bug as (( var++ )) when var=0.
+#
+#     For info: -
+#     When attempts is 0, (( 0++ )) evaluates to 0 (the pre-increment value).
+#     Bash arithmetic (( )) returns exit code 1 when the expression evaluates to 0.
+#     With set -e active, exit code 1 = immediate termination. The trace confirms:
+#     after attempts++ with attempts=0, cleanup fires immediately.
+#     Fix: attempts=$(( attempts + 1 )) — assignment always returns 0.
+
 # v3.9.1 CHANGELOG:
 #   - AUDIT: Full forensic line-by-line review. No functional bugs found.
 #   - STYLE: Consistent quoting on all variable assignments.
@@ -28,7 +41,7 @@ shopt -s extglob
 # POINT THIS TO YOUR REAL CONFIG FILE
 declare -r CONFIG_FILE="${HOME}/.config/hypr/change_me.conf"
 declare -r APP_TITLE="Input Config Editor"
-declare -r APP_VERSION="v3.9.1 (Hardened)"
+declare -r APP_VERSION="v3.9.2 (Hardened)"
 
 # Dimensions & Layout
 declare -ri MAX_DISPLAY_ROWS=14
@@ -523,7 +536,10 @@ reset_defaults() {
             fi
         fi
     done
-    (( any_written )) && post_write_action
+    # SAFETY: Bare (( expr )) returns exit code 1 when expr is 0.
+    # Under set -e, this would terminate the script if no defaults were written.
+    # The || : guard ensures this is always safe.
+    (( any_written )) && post_write_action || :
     return 0
 }
 

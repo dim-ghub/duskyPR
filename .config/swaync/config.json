@@ -52,7 +52,7 @@
                 },
                 {
                     "label": "",
-                    "command": "uwsm-app -- kitty --class nmcli_wifi.sh -e $HOME/user_scripts/network_manager/nmcli_wifi.sh"
+                    "command": "uwsm-app -- kitty --class dusky_network.sh -e $HOME/user_scripts/network_manager/dusky_network.sh"
                 },
                 {
                     "label": "󰂯",
