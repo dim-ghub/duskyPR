@@ -2,19 +2,16 @@
 # -----------------------------------------------------------------------------
 # Script: reinstall_wayclick.sh
 # Description: Safely resets the 'wayclick' environment.
-#              1. Stops running instances.
+#              1. Nukes ALL instances (Python runner + Wrapper).
 #              2. Removes the container directory.
 #              3. Triggers the setup script.
 # Environment: Arch Linux (Hyprland + UWSM)
-# Author: Elite DevOps (Generated & Optimized)
+# Author: Elite DevOps (Updated for Platinum Edition)
 # -----------------------------------------------------------------------------
 
 set -euo pipefail
 
-# 1. Aesthetics & Logging (TTY Aware)
-# -----------------------------------
-# Only define colors if outputting to a terminal. 
-# Prevents garbage characters in log files.
+# 1. Aesthetics & Logging
 if [[ -t 1 ]]; then
     readonly C_RESET=$'\033[0m'
     readonly C_GREEN=$'\033[1;32m'
@@ -31,29 +28,23 @@ log_warn()    { printf "%s[WARN]%s %s\n" "${C_YELLOW}" "${C_RESET}" "$1"; }
 log_error()   { printf "%s[ERROR]%s %s\n" "${C_RED}" "${C_RESET}" "$1" >&2; }
 
 # 2. Cleanup Trap
-# ---------------
-# Captures exit code to ensure we don't swallow errors during cleanup
 cleanup() {
     local exit_code=$?
-    # Reset terminal colors if they were set
     [[ -n "${C_RESET}" ]] && printf "%s" "${C_RESET}"
     exit "${exit_code}"
 }
 trap cleanup EXIT
 
 # 3. Configuration
-# ----------------
 readonly APP_NAME="wayclick"
+# Matches the BASE_DIR in your Platinum script
 readonly DIR_TO_DELETE="${HOME}/contained_apps/uv/${APP_NAME}"
+# ! IMPORTANT: Verify this path matches your actual setup script location !
 readonly SETUP_SCRIPT="${HOME}/user_scripts/arch_setup_scripts/scripts/081_key_sound_wayclick_setup.sh"
 
 # 4. Core Logic
-# -------------
 main() {
-    # -- Privilege Guard --
-    # Using Arithmetic context for integer comparison is cleaner
     if (( EUID == 0 )); then
-        log_error "This script manages user-level files in HOME."
         log_error "Do NOT run with sudo. Run as your regular user."
         exit 1
     fi
@@ -68,52 +59,46 @@ main() {
     fi
 
     if [[ ! -x "${SETUP_SCRIPT}" ]]; then
-        log_warn "Fixing permissions on setup script..."
         chmod +x "${SETUP_SCRIPT}"
     fi
 
-    # -- Step 1: Stop Running Instances --
-    # Use EUID for reliable process matching.
-    # Redirect stderr to void to keep output clean if no process found.
-    if pgrep -u "${EUID}" -x "${APP_NAME}" >/dev/null 2>&1; then
-        log_info "Stopping running ${APP_NAME} instances..."
-        
-        # 1. Polite Kill (SIGTERM)
-        pkill -u "${EUID}" -x "${APP_NAME}" 2>/dev/null || true
-        
-        # 2. Wait Loop (Fixed: Logic prevents 'set -e' crash)
-        # We use a for loop to avoid manual increment math errors
-        for _ in {1..3}; do
-            if ! pgrep -u "${EUID}" -x "${APP_NAME}" >/dev/null 2>&1; then
-                break
-            fi
-            sleep 1
-        done
+    # -- Step 1: Nuclear Process Kill --
+    # We target 'runner.py' specifically because that is the audio engine.
+    # We also target 'wayclick' just in case.
+    log_info "Stopping active instances..."
 
-        # 3. Force Kill (SIGKILL) if still stubborn
-        if pgrep -u "${EUID}" -x "${APP_NAME}" >/dev/null 2>&1; then
-            log_warn "Process stubborn. Forcing kill..."
-            pkill -9 -u "${EUID}" -x "${APP_NAME}" 2>/dev/null || true
-            sleep 0.5 # Give kernel a moment to release file handles
-        fi
-        
-        log_success "Processes stopped."
+    # Kill the Python Audio Engine (The real culprit)
+    if pgrep -f "runner.py" >/dev/null 2>&1; then
+        pkill -TERM -f "runner.py" 2>/dev/null || true
+        log_warn "killed active audio engine (runner.py)"
     fi
 
+    # Kill the Shell Wrapper
+    if pgrep -x "wayclick" >/dev/null 2>&1; then
+        pkill -x "wayclick" 2>/dev/null || true
+    fi
+
+    # Wait for death (max 3 seconds)
+    local wait_count=0
+    while (pgrep -f "runner.py" >/dev/null 2>&1 || pgrep -x "wayclick" >/dev/null 2>&1) && (( wait_count++ < 30 )); do
+        sleep 0.1
+    done
+
+    # Force Kill if still alive
+    pkill -KILL -f "runner.py" 2>/dev/null || true
+    pkill -KILL -x "wayclick" 2>/dev/null || true
+
+    log_success "All processes stopped."
+
     # -- Step 2: Delete Directory --
-    # Safety Check: strict validation to ensure we are inside HOME
-    # This prevents disasters if variables are somehow malformed.
-    if [[ -z "${DIR_TO_DELETE}" ]] || \
-       [[ "${DIR_TO_DELETE}" == "/" ]] || \
-       [[ "${DIR_TO_DELETE}" == "${HOME}" ]] || \
-       [[ "${DIR_TO_DELETE}" != "${HOME}/"* ]]; then
-         log_error "Safety Guard Triggered: Invalid delete target."
-         log_error "Path: ${DIR_TO_DELETE:-EMPTY}"
+    # Standard safety checks for rm -rf
+    if [[ -z "${DIR_TO_DELETE}" ]] || [[ "${DIR_TO_DELETE}" == "${HOME}" ]]; then
+         log_error "Invalid delete target."
          exit 1
     fi
 
     if [[ -d "${DIR_TO_DELETE}" ]]; then
-        log_info "Removing directory: ${DIR_TO_DELETE}"
+        log_info "Removing environment: ${DIR_TO_DELETE}"
         rm -rf "${DIR_TO_DELETE}"
         log_success "Cleaned up old installation."
     else
@@ -124,7 +109,6 @@ main() {
     log_info "Triggering setup script..."
     log_info "---------------------------------------------------"
     
-    # Run the setup script
     "${SETUP_SCRIPT}"
 
     log_info "---------------------------------------------------"
