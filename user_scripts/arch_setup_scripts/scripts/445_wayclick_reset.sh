@@ -41,8 +41,8 @@ die() { log "${C_RED}" "FATAL" "$1"; exit 1; }
 
 printf "%b
 ╔══════════════════════════════════════════════════════════════╗
-║  %bWAYCLICK FACTORY RESET%b                                    ║
-║  %bIntegrity Check • Purge • Native Rebuild%b                  ║
+║  %bWAYCLICK FACTORY RESET%b                                  ║
+║  %bIntegrity Check • Purge • Native Rebuild%b                ║
 ╚══════════════════════════════════════════════════════════════╝
 %b" "${C_RED}" "${C_YELLOW}" "${C_RED}" "${C_DIM}" "${C_RED}" "${C_RESET}"
 

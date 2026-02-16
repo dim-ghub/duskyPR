@@ -116,7 +116,7 @@ INSTALL_SEQUENCE=(
     "U | 445_wayclick_reset.sh"
     "U | 450_generate_colorfiles_for_current_wallpaer.sh"
     "U | 455_hyprctl_reload.sh"
-    "U | 460_switch_clipboard.sh"
+    "U | 460_switch_clipboard.sh --terminal"
     "S | 465_sddm_setup.sh"
     "U | 470_vesktop_matugen.sh --auto"
     "U | 475_reverting_sleep_timeout.sh"
