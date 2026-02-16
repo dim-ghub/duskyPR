@@ -51,7 +51,7 @@ INSTALL_SEQUENCE=(
 #    "S | 120_create_mount_directories.sh"
     "S | 125_pam_keyring.sh"
     "U | 130_copy_service_files.sh --default"
-    "U | 135_battery_notify_service.sh"
+    "U | 135_battery_notify_service.sh --auto"
     "U | 140_fc_cache_fv.sh"
     "U | 145_matugen_directories.sh"
     "U | 150_wallpapers_download.sh"
