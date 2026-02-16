@@ -81,14 +81,20 @@ log_err() {
 }
 
 cleanup() {
-    printf '%s%s%s' "$MOUSE_OFF" "$CURSOR_SHOW" "$C_RESET" 2>/dev/null || :
+    # Only try to restore TUI state if we actually initialized it (checked via ORIGINAL_STTY)
+    # This prevents printing junk escape sequences when running in CLI mode.
     if [[ -n "${ORIGINAL_STTY:-}" ]]; then
+        printf '%s%s%s' "$MOUSE_OFF" "$CURSOR_SHOW" "$C_RESET" 2>/dev/null || :
         stty "$ORIGINAL_STTY" 2>/dev/null || :
     fi
+    
     if [[ -n "${_TMPFILE:-}" && -f "$_TMPFILE" ]]; then
         rm -f "$_TMPFILE" 2>/dev/null || :
     fi
-    printf '\n' 2>/dev/null || :
+    # Only print newline if we were likely in TUI mode
+    if [[ -n "${ORIGINAL_STTY:-}" ]]; then
+        printf '\n' 2>/dev/null || :
+    fi
 }
 
 trap cleanup EXIT
@@ -389,6 +395,28 @@ main() {
         log_err "Could not detect \$fileManager in config file"
         exit 1
     fi
+
+    # Handle CLI arguments
+    case "${1:-}" in
+        --thunar)
+            if write_fm_switch "thunar"; then
+                printf '%s\n' "$STATUS_MSG"
+                exit 0
+            else
+                printf '%s\n' "$STATUS_MSG"
+                exit 1
+            fi
+            ;;
+        --yazi)
+            if write_fm_switch "yazi"; then
+                printf '%s\n' "$STATUS_MSG"
+                exit 0
+            else
+                printf '%s\n' "$STATUS_MSG"
+                exit 1
+            fi
+            ;;
+    esac
 
     # Pre-select the row matching the non-current option (what user likely wants)
     local -i i

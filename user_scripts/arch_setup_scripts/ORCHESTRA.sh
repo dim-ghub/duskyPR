@@ -71,7 +71,7 @@ INSTALL_SEQUENCE=(
     "S | 220_logrotate_optimization.sh"
 #    "S | 225_faillock_timeout.sh"
     "U | 230_non_asus_laptop.sh --auto"
-    "U | 235_file_manager_switch.sh"
+    "U | 235_file_manager_switch.sh --thunar"
     "U | 240_swaync_dgpu_fix.sh --disable"
 #    "S | 245_asusd_service_fix.sh"
 #    "S | 250_ftp_arch.sh"
