@@ -188,6 +188,14 @@ write_fm_switch() {
         xdg-mime default "$desktop_file" inode/directory 2>/dev/null || :
     fi
 
+    # Write state file for Dusky
+    mkdir -p "${HOME}/.config/dusky/settings"
+    if [[ "$new_fm" == "yazi" ]]; then
+        printf "true\n" > "${HOME}/.config/dusky/settings/filemanager_switch"
+    else
+        printf "false\n" > "${HOME}/.config/dusky/settings/filemanager_switch"
+    fi
+
     post_write_action
 
     STATUS_MSG="${C_GREEN}Switched to ${new_fm} successfully.${C_RESET}"
