@@ -1741,36 +1741,17 @@ pages:
         command: sh -c 'region=$(slurp); grim -g "$region" - | tesseract stdin stdout
           -l eng | wl-copy'
         terminal: false
+
 - id: setup_features
   title: Setup Features
   icon: system-software-install-symbolic
   layout:
   - type: section
     properties:
-      title: Installers
+      title: Core Installers
       icon: ''
-      description: ''
+      description: Essential tools
     items:
-    - type: button
-      properties:
-        title: Setup Cloudflare Warp
-        description: Install and configure Warp VPN
-        icon: security-high-symbolic
-        button_text: "Install"
-      on_press:
-        type: exec
-        command: kitty --class 010_warp.sh --hold sh -c "$HOME/user_scripts/arch_setup_scripts/scripts/085_warp.sh"
-        terminal: false
-    - type: button
-      properties:
-        title: Setup Waydroid
-        description: Install Android KVM container
-        icon: phone-symbolic
-        button_text: "Install"
-      on_press:
-        type: exec
-        command: kitty --class 069_waydroid_setup.sh --hold sh -c "$HOME/user_scripts/arch_setup_scripts/scripts/385_waydroid_setup.sh"
-        terminal: false
     - type: button
       properties:
         title: Install AUR Helper
@@ -1779,18 +1760,102 @@ pages:
         button_text: "Install"
       on_press:
         type: exec
-        command: kitty --class 009_aur_paru_fallback_yay.sh --hold sh -c "$HOME/user_scripts/arch_setup_scripts/scripts/080_aur_paru_fallback_yay.sh"
+        command: kitty --class 080_aur_paru_fallback_yay.sh --hold sh -c "$HOME/user_scripts/arch_setup_scripts/scripts/080_aur_paru_fallback_yay.sh"
         terminal: false
     - type: button
       properties:
-        title: Coming Soon...
-        description: More setup scripts are in development
-        icon: content-loading-symbolic
-        button_text: "Wait"
+        title: Setup Cloudflare Warp
+        description: Install and configure Warp VPN
+        icon: security-high-symbolic
+        button_text: "Setup"
       on_press:
         type: exec
-        command: echo 'Stay tuned for more updates!'
+        command: kitty --class 085_warp.sh --hold sh -c "$HOME/user_scripts/arch_setup_scripts/scripts/085_warp.sh"
         terminal: false
+    - type: button
+      properties:
+        title: SDDM Setup
+        description: Custom login screen & profile picture
+        icon: system-users-symbolic
+        button_text: "Setup"
+      on_press:
+        type: exec
+        command: kitty --class 465_sddm_setup.sh --hold sh -c "$HOME/user_scripts/arch_setup_scripts/scripts/465_sddm_setup.sh"
+        terminal: false
+
+  - type: section
+    properties:
+      title: Dusky Enhancements
+      icon: ''
+      description: Optional components
+    items:
+    - type: button
+      properties:
+        title: Optional Dusky Packages
+        description: Install extra utilities
+        icon: package-x-generic-symbolic
+        button_text: "Install"
+      on_press:
+        type: exec
+        command: kitty --class 090_paru_packages_optional.sh --hold sh -c "$HOME/user_scripts/arch_setup_scripts/scripts/090_paru_packages_optional.sh"
+        terminal: false
+    - type: button
+      properties:
+        title: Dusky Wallpaper Pack
+        description: Download ~2 GB of wallpapers
+        icon: image-x-generic-symbolic
+        button_text: "Download"
+      on_press:
+        type: exec
+        command: kitty --class 150_wallpapers_download.sh --hold sh -c "$HOME/user_scripts/arch_setup_scripts/scripts/150_wallpapers_download.sh"
+        terminal: false
+
+  - type: section
+    properties:
+      title: Hardware Configuration
+      icon: ''
+      description: GPU and Drivers
+    items:
+    - type: navigation
+      properties:
+        title: GPU Drivers
+        description: Nvidia, AMD, Intel configuration
+        icon: video-display-symbolic
+      layout:
+        - type: section
+          properties:
+            title: Nvidia Drivers
+            icon: ''
+            description: Open source drivers
+          items:
+            - type: button
+              properties:
+                title: Nvidia Open Source
+                description: Drivers for 11 series to 60 series
+                icon: video-display-symbolic
+                button_text: "Install"
+              on_press:
+                type: exec
+                command: kitty --class 380_nvidia_open_source.sh --hold sh -c "$HOME/user_scripts/arch_setup_scripts/scripts/380_nvidia_open_source.sh"
+                terminal: false
+
+  - type: section
+    properties:
+      title: Virtualization
+      icon: ''
+      description: Waydroid
+    items:
+    - type: button
+      properties:
+        title: Setup Waydroid
+        description: Install Android KVM container
+        icon: phone-symbolic
+        button_text: "Install"
+      on_press:
+        type: exec
+        command: kitty --class 385_waydroid_setup.sh --hold sh -c "$HOME/user_scripts/arch_setup_scripts/scripts/385_waydroid_setup.sh"
+        terminal: false
+
 - id: about_dusky
   title: About System
   layout:

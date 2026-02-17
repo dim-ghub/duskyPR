@@ -18,7 +18,7 @@ readonly CONFIG_DIR="${HOME}/.config/hypr/edit_here/source"
 readonly CONFIG_FILE="${CONFIG_DIR}/keybinds.conf"
 readonly MARKER_START='# -- TERMINAL-CLIPBOARD-START --'
 readonly MARKER_END='# -- TERMINAL-CLIPBOARD-END --'
-readonly BIND_SIGNATURE='toggle_terminal_clipboard.sh'
+readonly BIND_SIGNATURE='close_terminal_clipboard.sh'
 readonly STATE_FILE="${HOME}/.config/dusky/settings/clipboard_state"
 
 # ------------------------------------------------------------------------------
@@ -46,7 +46,7 @@ generate_terminal_block() {
     printf '%s\n' \
         "${MARKER_START}" \
         'unbind = $mainMod, V' \
-        'bindd = $mainMod, V, Clipboard History, exec, $scripts/clipboard/toggle_terminal_clipboard.sh uwsm-app -- kitty --class terminal_clipboard.sh -e "$scripts/clipboard/terminal_clipboard.sh"' \
+        'bindd = $mainMod, V, Clipboard History, exec, $scripts/clipboard/close_terminal_clipboard.sh uwsm-app -- kitty --class terminal_clipboard.sh -e "$scripts/clipboard/terminal_clipboard.sh"' \
         "${MARKER_END}"
 }
 
