@@ -298,9 +298,9 @@ acquire_sudo() {
     # Clear screen and show prompt
     printf '%s%s' "$CLR_SCREEN" "$CURSOR_HOME"
     printf '\n'
-    printf '  %s┌──────────────────────────────────────────────┐%s\n' "$C_MAGENTA" "$C_RESET"
+    printf '  %s┌────────────────────────────────────────────────┐%s\n' "$C_MAGENTA" "$C_RESET"
     printf '  %s│%s  System services require administrator access  %s│%s\n' "$C_MAGENTA" "$C_YELLOW" "$C_MAGENTA" "$C_RESET"
-    printf '  %s└──────────────────────────────────────────────┘%s\n' "$C_MAGENTA" "$C_RESET"
+    printf '  %s└────────────────────────────────────────────────┘%s\n' "$C_MAGENTA" "$C_RESET"
     printf '\n'
 
     local -i result=0
