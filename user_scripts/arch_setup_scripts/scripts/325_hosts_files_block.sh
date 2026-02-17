@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # -----------------------------------------------------------------------------
-# FocusForge TUI - Master v2.1.0
+# FocusForge TUI - Master v2.3.5
 # -----------------------------------------------------------------------------
 # Engine: Dusky TUI v3.9.5 (Strict Port)
 # Target: Arch Linux / Hyprland / UWSM / Wayland
@@ -18,12 +18,11 @@ declare -r HOSTS_FILE="/etc/hosts"
 declare -r BACKUP_FILE="/etc/hosts.backup.focusforge"
 declare -r REDIRECT_IP="0.0.0.0"
 declare -r APP_TITLE="Dusky Site Blocker"
-declare -r APP_VERSION="v2.1.0 (Stable)"
+declare -r APP_VERSION="v2.3.5 (Stable)"
 
 # Dimensions & Layout
 declare -ri MAX_DISPLAY_ROWS=14
 declare -ri BOX_INNER_WIDTH=76
-declare -ri ADJUST_THRESHOLD=38
 declare -ri ITEM_PADDING=42
 
 declare -ri HEADER_ROWS=4
@@ -36,7 +35,7 @@ declare -ra TABS=("Social" "Video" "News" "Gambling" "Custom")
 # Domain Database (Category Index | Domain Name)
 declare -ra DOMAIN_DB=(
     # 0: Social
-    "0|facebook.com" "0|twitter.com" "0|x.com" "0|instagram.com" 
+    "0|facebook.com" "0|twitter.com" "0|x.com" "0|instagram.com"
     "0|reddit.com" "0|linkedin.com" "0|tiktok.com" "0|pinterest.com"
     "0|tumblr.com" "0|snapchat.com" "0|threads.net" "0|discord.com"
 
@@ -53,8 +52,10 @@ declare -ra DOMAIN_DB=(
     "3|binance.com" "3|coinbase.com" "3|robinhood.com" "3|tradingview.com"
 )
 
-# Special Button Constant
+# Special Button Constants
 declare -r ADD_BUTTON_LABEL="[+] Add New Domain"
+declare -r IMPORT_BUTTON_LABEL="[⬇] Import Host File"
+declare -r CLEAR_BUTTON_LABEL="[X] Clear All Blocks"
 
 # =============================================================================
 # ▼ CORE ENGINE (Dusky v3.9.5) ▼
@@ -115,6 +116,9 @@ unset _ti
 
 declare -A IS_BLOCKED=()
 
+# Pre-built lookup: domain -> which standard tab it belongs to
+declare -A KNOWN_DOMAIN_TAB=()
+
 # --- System Helpers ---
 
 log_err() {
@@ -153,50 +157,86 @@ init_db() {
         IFS='|' read -r cat domain <<< "$entry"
         local -n _tab_ref="TAB_ITEMS_${cat}"
         _tab_ref+=("$domain")
+        KNOWN_DOMAIN_TAB["$domain"]="$cat"
     done
 
-    # Initialize Custom Tab with the "Add" button pinned at top
-    TAB_ITEMS_4=("$ADD_BUTTON_LABEL")
+    # Initialize Custom Tab with buttons pinned at top
+    TAB_ITEMS_4=("$ADD_BUTTON_LABEL" "$IMPORT_BUTTON_LABEL" "$CLEAR_BUTTON_LABEL")
 }
 
 refresh_state() {
     IS_BLOCKED=()
-    local domain
-    
-    while read -r line; do
-        if [[ "$line" =~ ^0\.0\.0\.0[[:space:]]+([^[:space:]#]+) ]]; then
-            domain="${BASH_REMATCH[1]}"
-            IS_BLOCKED["$domain"]=1
-            
-            # Check standard tabs
-            local found=0
-            local t d
-            for t in {0..3}; do
-                local -n _check_tab="TAB_ITEMS_$t"
-                for d in "${_check_tab[@]}"; do
-                    [[ "$d" == "$domain" ]] && found=1 && break
-                done
-                (( found )) && break
-            done
-            
-            # If not in standard tabs, add to Custom (Tab 4)
-            if (( found == 0 )); then
-                local exists_in_custom=0
-                for d in "${TAB_ITEMS_4[@]}"; do
-                    [[ "$d" == "$domain" ]] && exists_in_custom=1 && break
-                done
-                if (( exists_in_custom == 0 )); then
-                    TAB_ITEMS_4+=("$domain")
-                fi
-            fi
+
+    # Build a set of all known standard-tab domains for awk to filter against
+    local known_list=""
+    local d
+    for d in "${!KNOWN_DOMAIN_TAB[@]}"; do
+        known_list+="${d}"$'\n'
+    done
+
+    # Also build a set of current custom domains (excluding button labels)
+    # so awk can tell us which blocked domains are truly new
+    local -A current_custom=()
+    local item
+    for item in "${TAB_ITEMS_4[@]}"; do
+        if [[ "$item" != "$ADD_BUTTON_LABEL" && "$item" != "$IMPORT_BUTTON_LABEL" && "$item" != "$CLEAR_BUTTON_LABEL" ]]; then
+            current_custom["$item"]=1
         fi
-    done < "$HOSTS_FILE"
+    done
+
+    local custom_list=""
+    for d in "${!current_custom[@]}"; do
+        custom_list+="${d}"$'\n'
+    done
+
+    # Single awk pass: extract all blocked domains, classify as known/custom/new
+    # Output format: STATUS<tab>DOMAIN
+    #   B = blocked (known domain)
+    #   N = blocked (new custom domain, not in known or current custom)
+    #   C = blocked (existing custom domain)
+    local awk_output
+    awk_output=$(awk -v known="$known_list" -v custom="$custom_list" '
+    BEGIN {
+        n = split(known, karr, "\n")
+        for (i = 1; i <= n; i++) if (karr[i] != "") known_set[karr[i]] = 1
+        n = split(custom, carr, "\n")
+        for (i = 1; i <= n; i++) if (carr[i] != "") custom_set[carr[i]] = 1
+    }
+    /^0\.0\.0\.0[[:space:]]/ {
+        domain = $2
+        if (domain == "" || domain ~ /^#/) next
+        if (domain in known_set) {
+            print "B\t" domain
+        } else if (domain in custom_set) {
+            print "C\t" domain
+        } else {
+            print "N\t" domain
+        }
+    }
+    ' "$HOSTS_FILE" 2>/dev/null) || true
+
+    # Process awk output
+    local new_customs=()
+    local status domain
+    while IFS=$'\t' read -r status domain; do
+        [[ -z "$domain" ]] && continue
+        IS_BLOCKED["$domain"]=1
+
+        if [[ "$status" == "N" ]]; then
+            new_customs+=("$domain")
+        fi
+    done <<< "$awk_output"
+
+    # Bulk-append genuinely new custom domains
+    if (( ${#new_customs[@]} > 0 )); then
+        TAB_ITEMS_4+=("${new_customs[@]}")
+    fi
 }
 
 toggle_domain() {
     local domain="$1"
-    # Safety check: never try to block the button label
-    if [[ "$domain" == "$ADD_BUTTON_LABEL" ]]; then return; fi
+    # Safety check: never try to block the button labels
+    if [[ "$domain" == "$ADD_BUTTON_LABEL" || "$domain" == "$IMPORT_BUTTON_LABEL" || "$domain" == "$CLEAR_BUTTON_LABEL" ]]; then return; fi
 
     local current_state="${IS_BLOCKED["$domain"]:-0}"
     local new_state=$(( 1 - current_state ))
@@ -212,7 +252,7 @@ toggle_domain() {
     else
         # UNBLOCKING
         awk -v d="$domain" '
-        $1 == "0.0.0.0" && $2 == d { next } 
+        $1 == "0.0.0.0" && $2 == d { next }
         $1 == "0.0.0.0" && $2 == "www."d { next }
         { print $0 }
         ' "$HOSTS_FILE" > "$_TMPFILE"
@@ -247,7 +287,7 @@ toggle_domain() {
 add_custom_domain() {
     local domain="$1"
     if [[ -z "$domain" || "$domain" =~ [^a-zA-Z0-9.-] ]]; then return 1; fi
-    
+
     local exists=0
     for d in "${TAB_ITEMS_4[@]}"; do
         [[ "$d" == "$domain" ]] && exists=1
@@ -262,6 +302,124 @@ add_custom_domain() {
         SELECTED_ROW=$(( count - 1 ))
         compute_scroll_window "$count"
     fi
+}
+
+import_file_process() {
+    local fpath="$1"
+    # Resolve ~ to home if present (simple expansion)
+    if [[ "$fpath" == ~* ]]; then fpath="${HOME}${fpath:1}"; fi
+
+    if [[ ! -f "$fpath" ]]; then return 1; fi
+
+    local _temp_import
+    _temp_import=$(mktemp)
+
+    # 1. Extract valid domains
+    awk '
+    /^[[:space:]]*#/ { next }
+    /^[[:space:]]*$/ { next }
+    {
+        domain=""
+        for(i=1; i<=NF; i++) {
+            if ($i ~ /^([0-9]{1,3}\.){3}[0-9]{1,3}$/ || $i ~ /:/) {
+                 if (i+1 <= NF) { domain=$(i+1); break }
+            }
+        }
+        if (domain == "") next
+        if (domain == "localhost") next
+        if (domain == "localhost.localdomain") next
+        if (domain == "broadcasthost") next
+        if (domain == "local") next
+        if (domain == "0.0.0.0") next
+        if (domain ~ /^ip6-/) next
+        print domain
+    }
+    ' "$fpath" | sort -u > "$_temp_import"
+
+    if [[ ! -s "$_temp_import" ]]; then
+        rm -f "$_temp_import"
+        return 1
+    fi
+
+    # 2. Filter duplicates against what's already in hosts
+    local _current_domains
+    _current_domains=$(mktemp)
+    awk '$1 == "0.0.0.0" { print $2 }' "$HOSTS_FILE" | sort > "$_current_domains"
+
+    local _new_domains
+    _new_domains=$(mktemp)
+    comm -23 "$_temp_import" "$_current_domains" > "$_new_domains"
+
+    # 3. Bulk Append to hosts file
+    if [[ -s "$_new_domains" ]]; then
+        sed "s/^/$REDIRECT_IP /" "$_new_domains" >> "$HOSTS_FILE"
+    fi
+
+    rm -f "$_temp_import" "$_current_domains" "$_new_domains"
+    refresh_state
+}
+
+clear_all_blocks() {
+    local _temp_clean
+    _temp_clean=$(mktemp)
+
+    grep -v "^${REDIRECT_IP}[[:space:]]" "$HOSTS_FILE" > "$_temp_clean" || true
+
+    if [[ -s "$_temp_clean" ]]; then
+        cat "$_temp_clean" > "$HOSTS_FILE"
+    else
+        # If hosts file would be empty after removing all blocks,
+        # preserve at least an empty file
+        : > "$HOSTS_FILE"
+    fi
+
+    rm -f "$_temp_clean"
+    TAB_ITEMS_4=("$ADD_BUTTON_LABEL" "$IMPORT_BUTTON_LABEL" "$CLEAR_BUTTON_LABEL")
+    refresh_state
+}
+
+perform_blocking_import() {
+    # 1. Clear Screen Completely
+    printf "${CLR_SCREEN}${CURSOR_HOME}"
+
+    # 2. Restore standard terminal settings for input
+    if [[ -n "${ORIGINAL_STTY:-}" ]]; then
+        stty "$ORIGINAL_STTY" 2>/dev/null || stty sane
+    else
+        stty sane
+    fi
+    printf "${CURSOR_SHOW}"
+
+    # 3. Print a clean prompt at the top of the blank screen
+    printf "${C_MAGENTA}──────────────────────────────────────────────────${C_RESET}\n"
+    printf "${C_WHITE} IMPORT HOSTS FILE${C_RESET}\n"
+    printf "${C_GREY} Tip: Press [TAB] to list files.${C_RESET}\n"
+    printf "${C_MAGENTA}──────────────────────────────────────────────────${C_RESET}\n"
+
+    # 4. Read with Readline (-e enabled tab completion)
+    local file_path
+    read -e -p " > " file_path
+
+    # 5. Restore TUI Mode (Raw)
+    stty -icanon -echo min 1 time 0 2>/dev/null
+    printf "${CURSOR_HIDE}"
+
+    # 6. Flush the input buffer
+    local trash
+    read -t 0.1 -n 10000 trash || true
+
+    # 7. Process
+    if [[ -n "$file_path" ]]; then
+        # Show progress indicator for large files
+        printf "${CLR_SCREEN}${CURSOR_HOME}"
+        printf "${CURSOR_SHOW}"
+        printf "\n${C_YELLOW}  Importing... this may take a moment for large files.${C_RESET}\n"
+        import_file_process "$file_path"
+        printf "${CURSOR_HIDE}"
+    fi
+
+    # 8. Reset screen for next TUI draw
+    printf "${CLR_SCREEN}${CURSOR_HOME}"
 }
 
 # =============================================================================
@@ -392,7 +550,7 @@ draw_main_view() {
             else
                 tab_line+="${C_GREY} ${name} ${C_MAGENTA}│ "
             fi
-            
+
             TAB_ZONES+=("${zone_start}:$(( zone_start + t_len + 1 ))")
             used_len=$(( used_len + chunk_len ))
             current_col=$(( current_col + chunk_len ))
@@ -403,7 +561,7 @@ draw_main_view() {
             printf -v pad_buf '%*s' "$pad" ''
             tab_line+="$pad_buf"
         fi
-        
+
         tab_line+="${C_MAGENTA}│${C_RESET}"
         break
     done
@@ -423,11 +581,11 @@ draw_main_view() {
     local ri item state display padded_item
     for (( ri = _vis_start; ri < _vis_end; ri++ )); do
         item="${_draw_items_ref[ri]}"
-        
-        # Check for Special Add Button
-        if [[ "$item" == "$ADD_BUTTON_LABEL" ]]; then
+
+        # Check for Special Buttons
+        if [[ "$item" == "$ADD_BUTTON_LABEL" || "$item" == "$IMPORT_BUTTON_LABEL" || "$item" == "$CLEAR_BUTTON_LABEL" ]]; then
             display="" # No blocked status for button
-            
+
             # Special Rendering for Button
             if (( ri == SELECTED_ROW )); then
                 # Selected Button
@@ -471,7 +629,7 @@ draw_main_view() {
 
     buf+=$'\n'"${C_CYAN} [Tab] Category  [Space/Enter] Toggle  [q] Quit${C_RESET}${CLR_EOL}"$'\n'
     buf+="${C_CYAN} System: ${C_WHITE}${HOSTS_FILE}${C_RESET}${CLR_EOL}${CLR_EOS}"
-    
+
     printf '%s' "$buf"
 }
 
@@ -489,7 +647,11 @@ draw_input_modal() {
 }
 
 draw_ui() {
-    if (( CURRENT_VIEW == 0 )); then draw_main_view; else draw_input_modal; fi
+    if (( CURRENT_VIEW == 0 )); then
+        draw_main_view
+    elif (( CURRENT_VIEW == 1 )); then
+        draw_input_modal
+    fi
 }
 
 # =============================================================================
@@ -539,7 +701,18 @@ toggle_current() {
         INPUT_BUFFER=""
         return
     fi
-    
+
+    if [[ "$item" == "$IMPORT_BUTTON_LABEL" ]]; then
+        perform_blocking_import
+        CURRENT_VIEW=0
+        return
+    fi
+
+    if [[ "$item" == "$CLEAR_BUTTON_LABEL" ]]; then
+        clear_all_blocks
+        return
+    fi
+
     toggle_domain "$item"
 }
 
@@ -554,7 +727,7 @@ handle_mouse() {
     if [[ "$terminator" != "M" && "$terminator" != "m" ]]; then return 0; fi
     body="${body%[Mm]}"
     IFS=';' read -r button x y <<< "$body"
-    
+
     if (( button == 64 )); then navigate -1; return 0; fi
     if (( button == 65 )); then navigate 1; return 0; fi
     if [[ "$terminator" != "M" ]]; then return 0; fi
@@ -586,7 +759,7 @@ handle_mouse() {
     if (( y >= effective_start && y < effective_start + MAX_DISPLAY_ROWS )); then
         local -i clicked_idx=$(( y - effective_start + SCROLL_OFFSET ))
         local -n _mouse_items_ref="TAB_ITEMS_${CURRENT_TAB}"
-        
+
         if (( clicked_idx >= 0 && clicked_idx < ${#_mouse_items_ref[@]} )); then
             SELECTED_ROW=$clicked_idx
             if (( button == 0 )); then toggle_current; fi
@@ -666,7 +839,7 @@ handle_input_router() {
 
     if (( CURRENT_VIEW == 0 )); then
         handle_key_main "$key"
-    else
+    elif (( CURRENT_VIEW == 1 )); then
         handle_key_modal "$key"
     fi
 }
@@ -676,10 +849,30 @@ handle_input_router() {
 # =============================================================================
 
 main() {
-    # 0. Root Check
+    # 0. Root Check (Validate First Pattern)
     if [[ $EUID -ne 0 ]]; then
-       echo -e "${C_YELLOW}Privileges required. Escalating to sudo...${C_RESET}"
-       exec sudo bash "${BASH_SOURCE[0]}" "$@"
+       # FORCE TERMINAL RESET: Fixes invisible prompts from previous crashes
+       stty sane 2>/dev/null
+
+       echo -e "${C_YELLOW}Privileges required. Validating sudo permissions...${C_RESET}"
+
+       # 1. Authenticate FIRST. This handles the password prompt cleanly.
+       if ! sudo -v; then
+           echo -e "${C_RED}Sudo authentication failed or was cancelled.${C_RESET}"
+           exit 1
+       fi
+
+       # 2. Capture the absolute path to self
+       script_path=$(readlink -f "${BASH_SOURCE[0]}")
+
+       # 3. Pass debug flags if they were active
+       opts=()
+       [[ "$-" == *x* ]] && opts+=("-x")
+
+       echo -e "${C_GREEN}Privileges acquired. Restarting as root...${C_RESET}"
+
+       # 4. NOW it is safe to exec
+       exec sudo bash "${opts[@]}" "$script_path" "$@"
     fi
 
     if [[ ! -f "$HOSTS_FILE" ]]; then touch "$HOSTS_FILE"; fi
@@ -690,10 +883,21 @@ main() {
     done
 
     init_db
+
+    # Show loading indicator for large hosts files
+    local -i hosts_lines
+    hosts_lines=$(wc -l < "$HOSTS_FILE" 2>/dev/null) || hosts_lines=0
+    if (( hosts_lines > 5000 )); then
+        printf "${C_YELLOW}  Loading %d entries from hosts file...${C_RESET}\n" "$hosts_lines"
+    fi
+
     refresh_state
 
     ORIGINAL_STTY=$(stty -g 2>/dev/null) || ORIGINAL_STTY=""
     stty -icanon -echo min 1 time 0 2>/dev/null
+
+    # Use standard clear to handle buffer flushing before drawing TUI
+    clear 2>/dev/null || printf '%s' "$CLR_SCREEN"
     printf '%s%s%s%s' "$MOUSE_ON" "$CURSOR_HIDE" "$CLR_SCREEN" "$CURSOR_HOME"
 
     local key
