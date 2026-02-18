@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# -----------------------------------------------------------------------------
-# Description: Interactive fix for asusd D-Bus 'sudo' group policy
+# Interactive fix for asusd D-Bus 'sudo' group policy (asus systems only)
 # Target OS:   Arch Linux (Hyprland/UWSM environment)
 # Logic:       Root Check -> Service Detection -> User Prompt -> Atomic Fix
 # -----------------------------------------------------------------------------

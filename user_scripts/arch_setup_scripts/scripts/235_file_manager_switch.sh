@@ -1,14 +1,5 @@
 #!/usr/bin/env bash
-# -----------------------------------------------------------------------------
-# File Manager Switcher TUI - Dusky Engine v3.9.1 Based
-# -----------------------------------------------------------------------------
-# Target: Arch Linux / Hyprland / UWSM / Wayland
-#
-# Description: Toggles Hyprland file manager between Thunar (GUI) and Yazi (TUI)
-#              Respects UWSM and Arch Linux standards.
-#
-# Engine patterns adapted from Dusky TUI Engine Master v3.9.1
-# -----------------------------------------------------------------------------
+# Toggles file manager between Thunar (GUI) and Yazi (TUI)
 
 set -euo pipefail
 shopt -s extglob

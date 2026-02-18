@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Installs nveovim plugins based on the lua files in .config/nvim
 # ==============================================================================
 #  NEOVIM PLUGIN SYNCHRONIZER (HEADLESS)
 # ==============================================================================

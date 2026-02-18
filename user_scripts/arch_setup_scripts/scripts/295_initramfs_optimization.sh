@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-
+# configures Mkinitcpio file
 # -----------------------------------------------------------------------------
 # Script: optimize_mkinitcpio.sh
 # Description: Conditionally configures mkinitcpio for BTRFS and Systemd hooks.

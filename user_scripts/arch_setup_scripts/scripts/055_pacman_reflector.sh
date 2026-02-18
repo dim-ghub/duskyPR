@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
-# ==============================================================================
-#  055_pacman_reflector.sh
-#  Context: Arch Linux OS (Post-Install)
-#  Description: Updates mirrorlist using Reflector with a massive global fallback.
-#               Designed for high availability and manual/auto execution.
-# ==============================================================================
+# Updates mirrorlist using Reflector for faster pacman downlaods.
 
 set -euo pipefail
 

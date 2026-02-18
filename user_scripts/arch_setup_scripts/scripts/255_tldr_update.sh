@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
-# -----------------------------------------------------------------------------
-# Script: update_tldr.sh
-# Description: Safely updates the tldr cache in an Arch/Hyprland environment.
-# Environment: Arch Linux | Bash 5+ | UWSM
-# -----------------------------------------------------------------------------
+# Runs tldr update
+
 
 # --- 1. Strict Mode & Safety ---
 set -euo pipefail

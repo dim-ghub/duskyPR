@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
-# ==============================================================================
-#  Arch Linux Desktop Entry Path Fixer
-#  Environment: Hyprland / UWSM
-#  Description: Surgical update of 'Exec' paths in .desktop files to match $USER.
-#  Version: 2.1.0
-# ==============================================================================
+# Surgical update of 'Exec' paths in .desktop files to match $USER.
 
 # ------------------------------------------------------------------------------
 # 1. Configuration & Safety

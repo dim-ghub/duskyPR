@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
-# -----------------------------------------------------------------------------
-# Script: service_manager.sh
-# Description: Installs multiple systemd user services and manages their state.
-# Environment: Arch Linux / Hyprland / UWSM
-# Author: DevOps Assistant
-# -----------------------------------------------------------------------------
+# Installs multiple systemd user services and manages their state.
 
 # --- Strict Error Handling ---
 # -e: Exit immediately if a command exits with a non-zero status.

@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
-# -----------------------------------------------------------------------------
-# FocusForge TUI - Master v2.3.5
+# Blocks websites in the host file
 # -----------------------------------------------------------------------------
 # Engine: Dusky TUI v3.9.5 (Strict Port)
 # Target: Arch Linux / Hyprland / UWSM / Wayland

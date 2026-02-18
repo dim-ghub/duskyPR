@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
-# ==============================================================================
-# Script: mouse_button_reverse.sh (v2.1)
-# Purpose: Toggles mouse handedness in Hyprland (Dusky TUI Enhanced)
+# Toggles mouse handedness left or right
 # Usage:   ./mouse_button_reverse.sh [ --left | --right ]
 # ==============================================================================
 

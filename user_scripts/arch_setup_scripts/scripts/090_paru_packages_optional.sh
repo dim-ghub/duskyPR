@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
-# -----------------------------------------------------------------------------
-# Dusky TUI Package Selector - Master v3.0 (Refactored)
-# -----------------------------------------------------------------------------
-# Based on Dusky TUI Engine v3.9.5
-# Target: Arch Linux / Hyprland / Paru / Yay
-# -----------------------------------------------------------------------------
+# Dusky Optional Package Installer
 
 set -euo pipefail
 shopt -s extglob

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# This is to auto automatically detect your GPU and set the appropriate Environment Variables
+# automatically detects your GPU and set the appropriate Environment Variables
 # -----------------------------------------------------------------------------
 # Elite DevOps Arch/Hyprland/UWSM GPU Configurator
 # -----------------------------------------------------------------------------

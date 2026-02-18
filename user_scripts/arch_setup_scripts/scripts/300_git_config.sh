@@ -1,12 +1,5 @@
 #!/usr/bin/env bash
-
-# -----------------------------------------------------------------------------
-# Elite DevOps Git Configurator for Arch/Hyprland Environment
-# -----------------------------------------------------------------------------
-# Description: Safely appends Delta configuration to ~/.gitconfig
-# Author:      System Architect
-# Shell:       Bash 5.0+
-# -----------------------------------------------------------------------------
+# Configures git config for users
 
 # Strict Mode (Fail on error, unset vars, pipe failures)
 set -euo pipefail

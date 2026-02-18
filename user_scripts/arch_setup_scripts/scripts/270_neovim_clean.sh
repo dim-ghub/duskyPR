@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
-# ==============================================================================
-#  NEOVIM STATE CLEANER
-#  Context: Arch Linux / Hyprland / UWSM
-#  Orchestra Mode: USER (U)
-# ==============================================================================
+# Resets all cache for Neovim
 
 # 1. Safety & Modern Bash settings
 set -euo pipefail

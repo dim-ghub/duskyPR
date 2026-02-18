@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Enables systemd system services for packages
 # ==============================================================================
 # Arch Linux System Service Initializer
 # Context: Hyprland / UWSM / Systemd

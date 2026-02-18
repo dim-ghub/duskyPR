@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-
+# installs spotify with ad block
 # -----------------------------------------------------------------------------
 # Script: 044_spotify.sh
 # Description: Installs Spotify via Paru or Yay and runs SpotX verbatim.

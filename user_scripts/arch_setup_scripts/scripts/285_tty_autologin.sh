@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ==============================================================================
+# Configure Auto login for hyprland
 # Script Name: setup_autologin.sh
 # Description: Configures systemd TTY1 autologin for Arch/Hyprland/UWSM.
 #              Conditionally disables SDDM and creates systemd override.
