@@ -7,6 +7,7 @@
 # Config:  ~/.config/hypr/edit_here/source/keybinds.conf
 # System:  Arch Linux (Hyprland/Wayland)
 # Flags:   --terminal, --rofi, --status (mutually exclusive)
+#          --force (modifier: rewrites keybind lines to canonical form)
 # ==============================================================================
 
 set -euo pipefail
@@ -22,6 +23,7 @@ readonly LOCK_FILE="${CONFIG_FILE}.lock"
 
 # --- Global Mutable State ----------------------------------------------------
 _CLEANUP_FILE=""
+_LOCK_FILE_PATH=""
 _CONFIG_LINES=()
 _CONFIG_LOADED=0
 _TRIMMED=""
@@ -39,6 +41,9 @@ cleanup() {
     if [[ -n "${_CLEANUP_FILE}" && -f "${_CLEANUP_FILE}" ]]; then
         rm -f -- "${_CLEANUP_FILE}"
     fi
+    if [[ -n "${_LOCK_FILE_PATH}" && -f "${_LOCK_FILE_PATH}" ]]; then
+        rm -f -- "${_LOCK_FILE_PATH}"
+    fi
 }
 trap cleanup EXIT
 
@@ -52,6 +57,50 @@ warn()    { printf '%s[WARN]%s %s\n'  "${C_YELLOW}" "${C_RESET}" "$1" >&2; }
 trim() {
     _TRIMMED="${1#"${1%%[![:space:]]*}"}"
     _TRIMMED="${_TRIMMED%"${_TRIMMED##*[![:space:]]}"}"
+}
+
+# --- Helper: Check if an in-block line is a functional keybind line -----------
+#     Strips any leading comment prefix, then checks whether the remainder
+#     looks like a Hyprland keybind directive (bind/unbind variants) or
+#     contains the bind signature.  User comments and blank lines will NOT
+#     match, so they are never toggled.
+#
+#     NOTE: This function calls trim() and therefore overwrites _TRIMMED.
+#     Callers must save _TRIMMED beforehand if they still need it.
+is_functional_line() {
+    local raw="$1"
+
+    # Strip leading/trailing whitespace
+    trim "${raw}"
+    local stripped="${_TRIMMED}"
+
+    # Strip a single leading comment prefix to reveal the directive
+    if [[ "${stripped}" == '# '* ]]; then
+        stripped="${stripped#'# '}"
+    elif [[ "${stripped}" == '#'* ]]; then
+        stripped="${stripped#'#'}"
+    fi
+
+    # Trim again after stripping the comment prefix
+    trim "${stripped}"
+    stripped="${_TRIMMED}"
+
+    # Empty after stripping → not functional (blank line or bare comment)
+    [[ -n "${stripped}" ]] || return 1
+
+    # Match Hyprland bind/unbind family directives
+    # Covers: bind, bindd, bindm, bindr, bindl, binde, binds, bindrl, etc.
+    # Covers: unbind
+    if [[ "${stripped}" == bind* || "${stripped}" == unbind* ]]; then
+        return 0
+    fi
+
+    # Fallback: match the bind signature anywhere in the line
+    if [[ "${stripped}" == *"${BIND_SIGNATURE}"* ]]; then
+        return 0
+    fi
+
+    return 1
 }
 
 # --- Helper: Load config file into cache (idempotent) ------------------------
@@ -136,13 +185,23 @@ get_clipboard_state() {
     fi
 }
 
-# --- Helper: Generate the terminal keybind block (stdout) --------------------
+# --- Helper: Generate the complete terminal keybind block (stdout) -----------
+#     Includes marker lines.  Used when creating/appending a new block.
 generate_terminal_block() {
     printf '%s\n' \
         "${MARKER_START}" \
         'unbind = $mainMod, V' \
         'bindd = $mainMod, V, Clipboard History, exec, $scripts/clipboard/close_terminal_clipboard.sh uwsm-app -- kitty --class terminal_clipboard.sh -e "$scripts/clipboard/terminal_clipboard.sh"' \
         "${MARKER_END}"
+}
+
+# --- Helper: Generate only the canonical functional lines (stdout) -----------
+#     Does NOT include marker lines.  Used by --force to replace the keybind
+#     directives inside an existing block.
+generate_functional_lines() {
+    printf '%s\n' \
+        'unbind = $mainMod, V' \
+        'bindd = $mainMod, V, Clipboard History, exec, $scripts/clipboard/close_terminal_clipboard.sh uwsm-app -- kitty --class terminal_clipboard.sh -e "$scripts/clipboard/terminal_clipboard.sh"'
 }
 
 # --- Helper: Write state file with trailing newline --------------------------
@@ -207,6 +266,15 @@ atomic_write_config() {
 }
 
 # --- Core: Modify config block (atomic, same-filesystem, permission-safe) ----
+#     Supports three actions:
+#       comment   — prepend '# ' to functional lines (preserve non-functional)
+#       uncomment — strip leading '# ' or '#' from functional lines
+#       replace   — remove all functional lines and insert canonical replacements
+#                   at the position of the first removed line (or just after the
+#                   start marker if no functional lines existed)
+#
+#     For the "replace" action, the caller passes the replacement lines as a
+#     nameref array in $2.
 modify_config_block() {
     local action="$1"
     info "Starting atomic file modification: ${action}..."
@@ -215,31 +283,80 @@ modify_config_block() {
     validate_markers
 
     local -a output=()
-    local in_block=0 line
+    local in_block=0 line trimmed_line
+    # For the "replace" action: track whether replacement lines have been
+    # injected yet, so we insert them exactly once at the position of the
+    # first functional line we encounter (or before the end marker).
+    local replaced=0
+
+    # Load replacement lines array if action is "replace"
+    local -a replacement_lines=()
+    if [[ "${action}" == "replace" ]]; then
+        local -n _repl_ref=$2
+        replacement_lines=("${_repl_ref[@]}")
+    fi
 
     for line in "${_CONFIG_LINES[@]}"; do
         trim "${line}"
+        # Save the trimmed result immediately, because is_functional_line()
+        # calls trim() internally and would overwrite the global _TRIMMED.
+        trimmed_line="${_TRIMMED}"
 
-        if [[ "${_TRIMMED}" == "${MARKER_START}" ]]; then
+        if [[ "${trimmed_line}" == "${MARKER_START}" ]]; then
             in_block=1
             output+=("${line}")
-        elif [[ "${_TRIMMED}" == "${MARKER_END}" ]]; then
+        elif [[ "${trimmed_line}" == "${MARKER_END}" ]]; then
+            # If we're in replace mode and haven't injected yet (no functional
+            # lines existed in the block), inject just before the end marker.
+            if [[ "${action}" == "replace" ]] && (( ! replaced )); then
+                output+=("${replacement_lines[@]}")
+                replaced=1
+                info "No existing functional lines found — inserted canonical lines before end marker."
+            fi
             in_block=0
             output+=("${line}")
         elif (( in_block )); then
-            if [[ "${action}" == "comment" && "${_TRIMMED}" != '#'* ]]; then
-                output+=("# ${line}")
-            elif [[ "${action}" == "uncomment" && "${_TRIMMED}" == '#'* ]]; then
-                # Check the TRIMMED version for comment style, operate on
-                # the untrimmed line to preserve leading whitespace.
-                # Using _TRIMMED prevents false matches against '# ' that
-                # could appear in the line's content rather than its prefix.
-                if [[ "${_TRIMMED}" == '# '* ]]; then
-                    output+=("${line/'# '/}")
-                else
-                    output+=("${line/'#'/}")
-                fi
+            # Only toggle/replace lines that are functional keybind directives.
+            # User comments, blank lines, and anything else pass through
+            # unchanged — this prevents mangling prose that Hyprland
+            # cannot parse.
+            if is_functional_line "${line}"; then
+                case "${action}" in
+                    comment)
+                        if [[ "${trimmed_line}" != '#'* ]]; then
+                            output+=("# ${line}")
+                        else
+                            output+=("${line}")
+                        fi
+                        ;;
+                    uncomment)
+                        if [[ "${trimmed_line}" == '#'* ]]; then
+                            # Use trimmed_line to detect comment style, but
+                            # operate on the untrimmed line to preserve
+                            # leading whitespace.
+                            if [[ "${trimmed_line}" == '# '* ]]; then
+                                output+=("${line/'# '/}")
+                            else
+                                output+=("${line/'#'/}")
+                            fi
+                        else
+                            output+=("${line}")
+                        fi
+                        ;;
+                    replace)
+                        # Drop this functional line.  On the FIRST one we
+                        # encounter, inject the canonical replacements.
+                        if (( ! replaced )); then
+                            output+=("${replacement_lines[@]}")
+                            replaced=1
+                        fi
+                        # All subsequent functional lines are silently
+                        # discarded (they've been superseded by the
+                        # canonical set injected above).
+                        ;;
+                esac
             else
+                # Non-functional line: pass through completely unchanged
                 output+=("${line}")
             fi
         else
@@ -254,11 +371,21 @@ modify_config_block() {
 
 # --- Action: Enable terminal clipboard mode -----------------------------------
 enable_terminal_mode() {
-    info "Initiating switch to Terminal Clipboard mode..."
+    local force="${1:-0}"
+
+    info "Initiating switch to Terminal Clipboard mode${force:+' (force)'}..."
 
     if load_config; then
         if has_marker_block; then
-            modify_config_block "uncomment"
+            if (( force )); then
+                info "Force mode: replacing functional lines with canonical versions."
+                # Build uncommented canonical lines
+                local -a repl_lines
+                mapfile -t repl_lines < <(generate_functional_lines)
+                modify_config_block "replace" repl_lines
+            else
+                modify_config_block "uncomment"
+            fi
         else
             info "No existing block found. Appending new configuration..."
 
@@ -297,10 +424,24 @@ enable_terminal_mode() {
 
 # --- Action: Enable rofi clipboard mode --------------------------------------
 enable_rofi_mode() {
-    info "Initiating switch to Rofi Clipboard mode..."
+    local force="${1:-0}"
+
+    info "Initiating switch to Rofi Clipboard mode${force:+' (force)'}..."
 
     if load_config && has_marker_block; then
-        modify_config_block "comment"
+        if (( force )); then
+            info "Force mode: replacing functional lines with canonical (commented) versions."
+            # Build commented canonical lines
+            local -a repl_lines raw_lines
+            mapfile -t raw_lines < <(generate_functional_lines)
+            local i
+            for i in "${!raw_lines[@]}"; do
+                repl_lines+=("# ${raw_lines[i]}")
+            done
+            modify_config_block "replace" repl_lines
+        else
+            modify_config_block "comment"
+        fi
         success "Rofi Clipboard enabled (Terminal config commented out)."
     else
         warn "No Terminal clipboard configuration found. System is already using Rofi Clipboard."
@@ -351,10 +492,22 @@ Options:
   --terminal   Enable Terminal clipboard mode
   --rofi       Enable Rofi clipboard mode
   --status     Print current mode (terminal or rofi) to stdout and exit
+  --force      Rewrite keybind lines to canonical form (use with --terminal
+               or --rofi).  Replaces any modified keybind directives inside
+               the managed block with the known-good defaults.
   -h, --help   Show this help message
 
-Options --terminal, --rofi, and --status are mutually exclusive.
-If no option is provided, an interactive menu is displayed.
+Flag rules:
+  --terminal, --rofi, and --status are mutually exclusive.
+  --force may be combined with --terminal or --rofi (not --status).
+  If no mode option is provided, an interactive menu is displayed.
+
+Examples:
+  ${0##*/} --terminal            # Uncomment existing keybind lines
+  ${0##*/} --terminal --force    # Replace keybind lines with canonical versions
+  ${0##*/} --rofi                # Comment out keybind lines
+  ${0##*/} --rofi --force        # Replace with canonical commented versions
+  ${0##*/} --status              # Print 'terminal' or 'rofi' to stdout
 EOF
 }
 
@@ -364,6 +517,7 @@ main() {
     (( EUID != 0 )) || die "Do not run as root. This modifies user configuration."
 
     local mode=""
+    local force=0
 
     # Argument parsing with mutual-exclusivity enforcement
     while (( $# > 0 )); do
@@ -380,6 +534,9 @@ main() {
                 [[ -z "${mode}" ]] || die "Conflicting options: --status and --${mode} are mutually exclusive."
                 mode="status"
                 ;;
+            --force)
+                force=1
+                ;;
             -h|--help)
                 usage
                 exit 0
@@ -393,6 +550,11 @@ main() {
         esac
         shift
     done
+
+    # Validate --force usage
+    if (( force )) && [[ "${mode}" == "status" ]]; then
+        die "--force cannot be used with --status."
+    fi
 
     # Non-TTY guard: refuse interactive mode when stdin is not a terminal
     if [[ -z "${mode}" && ! -t 0 ]]; then
@@ -410,7 +572,14 @@ main() {
     # Acquire exclusive lock (non-blocking — fail fast on contention)
     local lock_fd
     exec {lock_fd}>"${LOCK_FILE}"
-    flock -n "${lock_fd}" || die "Another instance is already running."
+    if ! flock -n "${lock_fd}"; then
+        # Close the fd we opened; cleanup will not remove the file since
+        # we never armed _LOCK_FILE_PATH (another instance owns it).
+        exec {lock_fd}>&-
+        die "Another instance is already running."
+    fi
+    # Lock acquired — arm cleanup so the lock file is removed on exit
+    _LOCK_FILE_PATH="${LOCK_FILE}"
 
     # Status mode: print and exit early (no modifications beyond state sync)
     if [[ "${mode}" == "status" ]]; then
@@ -444,8 +613,8 @@ main() {
 
     # Execute selected action
     case "${mode}" in
-        terminal) enable_terminal_mode ;;
-        rofi)     enable_rofi_mode ;;
+        terminal) enable_terminal_mode "${force}" ;;
+        rofi)     enable_rofi_mode "${force}" ;;
         *)        die "Internal error: invalid mode '${mode}'" ;;
     esac
 }

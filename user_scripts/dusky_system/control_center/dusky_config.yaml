@@ -1057,7 +1057,7 @@ pages:
         interval: 5
       on_change:
         type: exec
-        command: "$HOME/user_scripts/arch_setup_scripts/scripts/switch_clipboard.sh --$(echo '{value}' | tr '[:upper:]' '[:lower:]')"
+        command: "$HOME/user_scripts/arch_setup_scripts/scripts/460_switch_clipboard.sh --$(echo '{value}' | tr '[:upper:]' '[:lower:]')"
   - type: section
     properties:
       title: Memory & Optimization
