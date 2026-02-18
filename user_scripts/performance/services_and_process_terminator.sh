@@ -85,6 +85,7 @@ declare -ra DEFAULT_USER_SERVICES=(
     "gvfs-metadata"
     "network_meter"
     "waybar"
+    "dusky"
 )
 declare -ra OPTIONAL_USER_SERVICES=(
     "gnome-keyring-daemon"
