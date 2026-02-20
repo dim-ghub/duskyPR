@@ -1,29 +1,28 @@
 #!/usr/bin/env bash
 # -----------------------------------------------------------------------------
-# Script: restart_dusky_cc.sh
-# Purpose: Forcefully manages the Dusky Control Center lifecycle.
+# Script: reload_sliders.sh
+# Purpose: Forcefully manages the Dusky Sliders lifecycle.
 #          1. Snapshots and terminates running instances (SIGTERM -> SIGKILL).
 #          2. Resets systemd failure state.
 #          3. Starts a clean systemd user service instance.
-#          4. Signals the UI to activate (if applicable).
+#          4. Signals the UI to activate via D-Bus.
 # Compatibility: Bash 5.3+, Arch Linux, UWSM/Hyprland
-# Author: Elite DevOps Engineer
 # -----------------------------------------------------------------------------
 
 set -euo pipefail
 
 # -----------------------------------------------------------------------------
-# SIGNAL TRAP (CRITICAL)
+# SIGNAL TRAP
 # -----------------------------------------------------------------------------
 trap '' HUP
 
 # -----------------------------------------------------------------------------
 # Configuration
 # -----------------------------------------------------------------------------
-readonly APP_NAME="Dusky Control Center"
-readonly SERVICE_NAME="dusky.service"
-readonly PROCESS_PATTERN='dusky_control_center\.py'
-readonly GUI_SCRIPT_PATH="${HOME}/user_scripts/dusky_system/control_center/dusky_control_center.py"
+readonly APP_NAME="Dusky Sliders"
+readonly SERVICE_NAME="dusky_sliders.service"
+readonly PROCESS_PATTERN='dusky_sliders\.py'
+readonly GUI_SCRIPT_PATH="${HOME}/user_scripts/sliders/dusky_sliders.py"
 
 # Timing Constants (Seconds)
 readonly GRACE_PERIOD_LOOPS=20
@@ -44,9 +43,6 @@ else
     readonly C_RED='' C_GREEN='' C_YELLOW='' C_BLUE='' C_BOLD='' C_RESET=''
 fi
 
-# -----------------------------------------------------------------------------
-# Logging Functions
-# -----------------------------------------------------------------------------
 log_info() { printf '%s[INFO]%s %s\n' "${C_BLUE}" "${C_RESET}" "$*"; }
 log_ok()   { printf '%s[OK]%s %s\n' "${C_GREEN}" "${C_RESET}" "$*"; }
 log_warn() { printf '%s[WARN]%s %s\n' "${C_YELLOW}" "${C_RESET}" "$*" >&2; }
@@ -62,7 +58,6 @@ preflight_checks() {
     fi
 
     local -a missing=()
-    local cmd
     for cmd in pgrep systemctl journalctl python3; do
         command -v "$cmd" &>/dev/null || missing+=("$cmd")
     done
@@ -71,7 +66,6 @@ preflight_checks() {
         log_err "Missing required binaries: ${missing[*]}"
         return 1
     fi
-    return 0
 }
 
 # -----------------------------------------------------------------------------
@@ -156,13 +150,14 @@ activate_ui() {
         return 0
     fi
 
-    log_info "Activating UI window..."
+    log_info "Activating UI window via D-Bus..."
 
-    # Robust launch: background the process and immediately disown it
+    # GTK4 Adw.Application natively handles D-Bus activation.
+    # Running it sends the signal to the primary daemon and exits immediately.
     if [[ -x "$GUI_SCRIPT_PATH" ]]; then
-        "$GUI_SCRIPT_PATH" >/dev/null 2>&1 & disown
+        "$GUI_SCRIPT_PATH" >/dev/null 2>&1
     else
-        python3 -- "$GUI_SCRIPT_PATH" >/dev/null 2>&1 & disown
+        python3 -- "$GUI_SCRIPT_PATH" >/dev/null 2>&1
     fi
 }
 

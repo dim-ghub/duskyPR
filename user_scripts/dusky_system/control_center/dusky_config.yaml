@@ -719,7 +719,7 @@ pages:
         button_text: "Open"
       on_press:
         type: exec
-        command: $HOME/user_scripts/sliders/hyprsunset_slider.sh
+        command: $HOME/user_scripts/sliders/dusky_sliders.py
         terminal: false
   - type: section
     properties:
