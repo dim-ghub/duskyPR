@@ -217,16 +217,27 @@ pages:
         type: exec
         command: kitty --class ORCHESTRA.sh --hold sh -c $HOME/user_scripts/arch_setup_scripts/ORCHESTRA.sh
         terminal: false
-    - type: button
+  - type: section
+    properties:
+      title: Session Management
+      icon: system-users-symbolic
+      description: Manage user session and login behavior
+    items:
+    - type: toggle
       properties:
-        title: Auto Login Setup
-        description: Configure TTY autologin
+        title: TTY Auto Login
+        description: Automatically login to TTY1 on boot
         icon: avatar-default-symbolic
-        button_text: "Setup"
-      on_press:
-        type: exec
-        command: kitty --class 285_tty_autologin.sh --hold sh -c "$HOME/user_scripts/arch_setup_scripts/scripts/285_tty_autologin.sh"
-        terminal: false
+        key_file: ~/.config/dusky/settings/auto_login_tty
+      on_toggle:
+        enabled:
+          type: exec
+          command: kitty --class 285_tty_autologin.sh --hold sh -c "$HOME/user_scripts/arch_setup_scripts/scripts/285_tty_autologin.sh --auto"
+          terminal: false
+        disabled:
+          type: exec
+          command: kitty --class 285_tty_autologin.sh --hold sh -c "$HOME/user_scripts/arch_setup_scripts/scripts/285_tty_autologin.sh --revert"
+          terminal: false
 
   - type: section
     properties:
