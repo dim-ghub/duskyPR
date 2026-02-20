@@ -4,7 +4,7 @@ set -euo pipefail
 # ==============================================================================
 # DUSKY STT INSTALLER (Faster-Whisper Edition)
 # Arch Linux / Wayland / Hyprland Optimized
-# Strict NVIDIA + CPU Support
+# Strict NVIDIA + CPU Support with Classy YAD Integration
 # ==============================================================================
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -19,9 +19,10 @@ echo ":: Initializing Dusky STT Setup..."
 
 # --- 1. System Dependencies Check ---
 echo ":: Checking System Dependencies..."
-for cmd in uv pw-record; do
+for cmd in uv pw-record yad; do
     if ! command -v "$cmd" &>/dev/null; then
         echo ":: ERROR: Missing critical dependency '$cmd'. Please install it."
+        echo "   (Hint: sudo pacman -S yad)"
         exit 1
     fi
 done
@@ -165,6 +166,7 @@ readonly INSTALL_MODE="$MODE"
 
 # Recording vars
 readonly RECORD_PID_FILE="/tmp/dusky_stt_record.pid"
+readonly YAD_PID_FILE="/tmp/dusky_stt_yad.pid"
 readonly AUDIO_TMP_FILE="/tmp/dusky_stt_capture.wav"
 DEFAULT_MODEL="$DEFAULT_MODEL"
 
@@ -193,7 +195,7 @@ stop_daemon() {
             kill -9 "\$pid" 2>/dev/null || true
         fi
     fi
-    rm -f "\$PID_FILE" "\$FIFO_PATH" "\$READY_FILE" "\$RECORD_PID_FILE"
+    rm -f "\$PID_FILE" "\$FIFO_PATH" "\$READY_FILE" "\$RECORD_PID_FILE" "\$YAD_PID_FILE"
 }
 
 start_daemon() {
@@ -235,7 +237,7 @@ USAGE:
     ./trigger.sh --debug           (Start daemon in debug mode)
     ./trigger.sh --logs            (Tail daemon logs)
 
-MODELS: tiny.en, base.en, small.en, medium.en, distil-large-v3, or HuggingFace repo ID
+MODELS: tiny.en, base.en, small.en, medium.en, distil-large-v3
 HELP
 }
 
@@ -272,25 +274,58 @@ fi
 
 # --- Audio Toggle Logic ---
 if [[ -f "\$RECORD_PID_FILE" ]] && kill -0 "\$(cat "\$RECORD_PID_FILE")" 2>/dev/null; then
-    # WE ARE RECORDING -> STOP & TRANSCRIBE
+    # WE ARE RECORDING -> STOP & TRANSCRIBE (Second Hotkey Press)
     REC_PID=\$(cat "\$RECORD_PID_FILE")
     kill -INT "\$REC_PID" 2>/dev/null || true
     rm -f "\$RECORD_PID_FILE"
     
+    # Gracefully tear down the YAD UI Subshell
+    if [[ -f "\$YAD_PID_FILE" ]]; then
+        kill "\$(cat "\$YAD_PID_FILE")" 2>/dev/null || true
+        rm -f "\$YAD_PID_FILE"
+    fi
+    pkill -f "yad --title=Dusky STT" 2>/dev/null || true
+    
     echo -e ":: 🟢 Stopping recording. Transcribing with \${MODEL}..."
-    notify -t 1500 "Dusky STT" "Transcribing (\${MODEL})..."
     
     # Send payload to FIFO
     printf "%s|%s\n" "\$AUDIO_TMP_FILE" "\$MODEL" > "\$FIFO_PATH" &
 else
     # NOT RECORDING -> START CAPTURE
     rm -f "\$AUDIO_TMP_FILE"
-    echo -e ":: 🔴 Recording Started! Run this script again to stop and transcribe."
-    notify -t 1500 "Dusky STT" "🔴 Recording Started..."
+    echo -e ":: 🔴 Recording Started! Use hotkey again or click popup to stop."
     
     # Use Pipewire native recorder
     pw-record --target auto "\$AUDIO_TMP_FILE" &
-    echo \$! > "\$RECORD_PID_FILE"
+    REC_PID=\$!
+    echo \$REC_PID > "\$RECORD_PID_FILE"
+
+    # Launch elegant, non-blocking YAD popup in a subshell
+    (
+        yad_exit=0
+        yad --title="Dusky STT" \\
+            --text="<span font='13' foreground='#ff4a4a'><b>🎙️ Recording Audio</b></span>\n<span font='10' foreground='#999999'>Press shortcut again or click below</span>" \\
+            --button="Transcribe:0" \\
+            --button="Cancel:1" \\
+            --width=280 \\
+            --borders=16 \\
+            --undecorated --on-top --fixed --center --skip-taskbar 2>/dev/null || yad_exit=\$?
+        
+        # Guard: Only evaluate button clicks if the main hotkey didn't already cancel this subshell
+        if [[ -f "\$RECORD_PID_FILE" ]] && kill -0 "\$(cat "\$RECORD_PID_FILE")" 2>/dev/null; then
+            if [ \$yad_exit -eq 0 ]; then
+                # User clicked 'Transcribe' -> Feed back into script logic
+                "\$0" --model "\$MODEL"
+            else
+                # User pressed ESC or 'Cancel' -> Abort completely
+                kill -INT "\$(cat "\$RECORD_PID_FILE")" 2>/dev/null || true
+                rm -f "\$RECORD_PID_FILE" "\$AUDIO_TMP_FILE" "\$YAD_PID_FILE"
+                notify -t 1500 "Dusky STT" "Recording Cancelled."
+            fi
+        fi
+    ) &
+    YAD_PID=\$!
+    echo \$YAD_PID > "\$YAD_PID_FILE"
 fi
 EOF
 
