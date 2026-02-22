@@ -1,7 +1,7 @@
 @import url("../matugen/generated/waybar-colors.css");
 
 @define-color hover-fg      alpha(@on_surface, 0.75);
-@define-color outline       shade(@inverse_surface, 0.5);
+@define-color outline       shade(@background, 0.5);
 
 * {
 	/* ignore GTK theme */
@@ -97,7 +97,7 @@ tooltip label {
 #custom-distro {
 	padding: 0 10px 0 5px;
 	background-color: @secondary;
-	color: @inverse_surface;
+	color: @background;
 }
 
 /*--------------------
@@ -108,6 +108,17 @@ tooltip label {
 	color: @surface_container_high;
 }
 #idle_inhibitor {
+	background-color: @surface_container_high;
+}
+
+/*--------------------
+    notifications
+--------------------*/
+
+#custom-right_inv.2 {
+	color: @surface_container_high;
+}
+#custom-notifications {
 	background-color: @surface_container_high;
 }
 
@@ -244,6 +255,7 @@ tooltip label {
 
 #custom-trigger:hover,
 #idle_inhibitor:hover,
+#custom-notifications:hover,
 #clock.date:hover,
 #network:hover,
 #bluetooth:hover,
@@ -256,6 +268,8 @@ tooltip label {
 
 /* inactive state */
 #idle_inhibitor.deactivated,
+#custom-notifications.dnd-none,
+#custom-notifications.dnd-inhibited-none,
 #mpris.paused,
 #pulseaudio.output.muted,
 #pulseaudio.input.source-muted,
@@ -289,7 +303,7 @@ tooltip label {
 }
 #waybar > box {
 	margin: 4px;
-	background-color: @inverse_surface;
+	background-color: @background;
 }
 
 button {
@@ -305,7 +319,7 @@ button:hover {
 tooltip {
 	border: 2px solid @on_background;
 	border-radius: 10px;
-	background-color: @inverse_surface;
+	background-color: @background;
 }
 tooltip > box {
 	padding: 0 6px;
