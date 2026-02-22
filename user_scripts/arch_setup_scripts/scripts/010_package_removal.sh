@@ -20,6 +20,7 @@ readonly -a REPO_TARGETS=(
   dolphin
   wofi
   polkit-kde-agent
+  power-profiles-daemon
 )
 
 # AUR Packages (yay/paru, no sudo)
