@@ -92,7 +92,7 @@ declare -ra UPDATE_SEQUENCE=(
 #    "U | 035_configure_uwsm_gpu.sh"
 #    "U | 040_long_sleep_timeout.sh"
 #    "S | 045_battery_limiter.sh"
-#    "S | 050_pacman_config.sh"
+#    "S | 050_pacman_config.sh --auto"
 #    "S | 055_pacman_reflector.sh"
 #    "S | 060_package_installation.sh"
 #    "U | 065_enabling_user_services.sh"
