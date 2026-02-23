@@ -355,11 +355,11 @@ pages:
                     type: exec
                     command: kitty --class yazi --title "Backup Viewer" --hold sh -c "yazi $HOME/Documents/dusky_backups/"
                 - icon: system-file-manager-symbolic
-                  button_text: "Thunar"
+                  button_text: "Nemo"
                   style: suggested
                   on_press:
                     type: exec
-                    command: thunar "$HOME/Documents/dusky_backups/"
+                    command: nemo "$HOME/Documents/dusky_backups/"
           - type: button
             properties:
               title: Send Logs
@@ -440,12 +440,12 @@ pages:
     - type: selection
       properties:
         title: File Manager Switch
-        description: 'Choose Default: Thunar (GUI) vs Yazi (TUI)'
+        description: 'Choose Default: Nemo (GUI) vs Yazi (TUI)'
         icon: system-file-manager-symbolic
         options:
           - Yazi
-          - Thunar
-        value_command: "grep -q 'true' ~/.config/dusky/settings/filemanager_switch 2>/dev/null && echo 'Yazi' || echo 'Thunar'"
+          - Nemo
+        value_command: "grep -q 'true' ~/.config/dusky/settings/filemanager_switch 2>/dev/null && echo 'Yazi' || echo 'Nemo'"
         interval: 5
       on_change:
         type: exec
