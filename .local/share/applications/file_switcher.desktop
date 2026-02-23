@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=File Manager Switcher
-GenericName=Yazi and Thunar
+GenericName=Yazi and Nemo
 Comment=Switch between file managers
 Exec=uwsm-app -- kitty --hold --class 235_file_manager_switch.sh -e /home/dusk/user_scripts/arch_setup_scripts/scripts/235_file_manager_switch.sh
 Terminal=false

@@ -215,7 +215,7 @@
             "warning": 75,
             "critical": 90
         },
-        "on-click-right": "uwsm-app -- thunar"
+        "on-click-right": "uwsm-app -- nemo"
     },
 
     "temperature": {
