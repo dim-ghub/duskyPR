@@ -2097,27 +2097,33 @@ pages:
       layout:
         - type: section
           properties:
-            title: Spotify Setup
+            title: Spotify (With Matugen)
+            description: 'Themed installation using Spicetify'
           items:
-            - type: button
-              properties:
-                title: Install Spotify
-                icon: system-software-install-symbolic
-                button_text: "Install"
-              on_press:
-                type: exec
-                command: kitty --class 260_spotify.sh --hold sh -c "$HOME/user_scripts/arch_setup_scripts/scripts/260_spotify.sh"
-                terminal: false
-            - type: button
-              properties:
-                title: Theme Spicetify
-                description: Apply Matugen theme
-                icon: palette-symbolic
-                button_text: "Theme"
-              on_press:
-                type: exec
-                command: kitty --class 405_spicetify_matugen_setup.sh --hold sh -c "$HOME/user_scripts/arch_setup_scripts/scripts/405_spicetify_matugen_setup.sh"
-                terminal: false
+          - type: button
+            properties:
+              title: Install Spotify
+              icon: palette-symbolic
+              button_text: "Install"
+            on_press:
+              type: exec
+              command: kitty --class 405_spicetify_matugen_setup.sh --hold sh -c "$HOME/user_scripts/arch_setup_scripts/scripts/405_spicetify_matugen_setup.sh"
+              terminal: false
+
+        - type: section
+          properties:
+            title: Spotify (Without Matugen)
+            description: 'Standard Spotify installation'
+          items:
+          - type: button
+            properties:
+              title: Install Standard Spotify
+              icon: system-software-install-symbolic
+              button_text: "Install"
+            on_press:
+              type: exec
+              command: kitty --class 260_spotify.sh --hold sh -c "$HOME/user_scripts/arch_setup_scripts/scripts/260_spotify.sh"
+              terminal: false
 
   - type: section
     properties:
