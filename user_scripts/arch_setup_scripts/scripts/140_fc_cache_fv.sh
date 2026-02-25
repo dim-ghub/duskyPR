@@ -1,5 +1,4 @@
 #!/bin/bash
-# refresh_fonts.sh
 # Refreshes font cache and verifies font aliasing for Arch/Hyprland environment.
 
 # -----------------------------------------------------------------------------

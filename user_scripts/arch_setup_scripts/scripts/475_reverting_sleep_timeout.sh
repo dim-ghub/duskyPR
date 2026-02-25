@@ -1,4 +1,5 @@
 #!/bin/bash
+# hypridle reverting timeout to default
 #===============================================================================
 # HYPRIDLE CONFIGURATION APPLICATOR
 # specific for Arch/Hyprland/UWSM ecosystem

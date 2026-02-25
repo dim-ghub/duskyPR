@@ -23,7 +23,7 @@ SCRIPT_SEARCH_DIRS=(
 )
 
 # Delay (in seconds) after each successful script. Set to 0 to disable.
-POST_SCRIPT_DELAY=1
+POST_SCRIPT_DELAY=0
 
 INSTALL_SEQUENCE=(
     "U | 005_hypr_custom_config_setup.sh"
@@ -78,8 +78,6 @@ INSTALL_SEQUENCE=(
     "U | 255_tldr_update.sh"
     "U | 260_spotify.sh"
     "U | 265_mouse_button_reverse.sh"
-    "U | 270_neovim_clean.sh"
-    "U | 275_neovim_lazy_sync.sh"
     "U | 280_dusk_clipboard_errands_delete.sh"
     "S | 285_tty_autologin.sh"
     "S | 290_system_services.sh"
@@ -111,9 +109,8 @@ INSTALL_SEQUENCE=(
     "U | 420_kokoro_gpu_setup.sh" #requires nvidia gpu with at least 4gb vram
     "U | 425_parakeet_gpu_setup.sh" #requires nvidia gpu with at least 4gb vram
     "S | 430_btrfs_zstd_compression_stats.sh"
-    "U | 435_key_sound_wayclick_setup.sh"
+    "U | 435_key_sound_wayclick_setup.sh --setup"
     "U | 440_config_bat_notify.sh"
-    "U | 445_wayclick_reset.sh"
     "U | 450_generate_colorfiles_for_current_wallpaer.sh"
     "U | 455_hyprctl_reload.sh"
     "U | 460_switch_clipboard.sh"
@@ -142,18 +139,20 @@ declare -g SUDO_PID=""
 declare -g LOGGING_INITIALIZED=0
 declare -g EXECUTION_PHASE=0
 
-# 4. Colors
+# Bash 5.3 O(1) Performance Arrays
+declare -gA COMPLETED_SCRIPTS=()
+declare -gA SCRIPT_CACHE=()
+
+# 4. Colors (Zero-Subshell ANSI Hardcodes)
 declare -g RED="" GREEN="" BLUE="" YELLOW="" BOLD="" RESET=""
 
-if [[ -t 1 ]] && command -v tput &>/dev/null; then
-    if (( $(tput colors 2>/dev/null || echo 0) >= 8 )); then
-        RED=$(tput setaf 1)
-        GREEN=$(tput setaf 2)
-        YELLOW=$(tput setaf 3)
-        BLUE=$(tput setaf 4)
-        BOLD=$(tput bold)
-        RESET=$(tput sgr0)
-    fi
+if [[ -t 1 ]]; then
+    RED=$'\e[1;31m'
+    GREEN=$'\e[1;32m'
+    YELLOW=$'\e[1;33m'
+    BLUE=$'\e[1;34m'
+    BOLD=$'\e[1m'
+    RESET=$'\e[0m'
 fi
 
 # 5. Logging
@@ -165,7 +164,8 @@ setup_logging() {
     fi
 
     touch "$LOG_FILE"
-    exec > >(tee >(sed 's/\x1B\[[0-9;]*[a-zA-Z]//g; s/\x1B(B//g' >> "$LOG_FILE")) 2>&1
+    # PATCH: Close FD 9 for the tee process to avoid lock file inheritance
+    exec > >(exec 9>&-; tee >(sed 's/\x1B\[[0-9;]*[a-zA-Z]//g; s/\x1B(B//g' >> "$LOG_FILE")) 2>&1
 
     LOGGING_INITIALIZED=1
     echo "--- Installation Started: $(date '+%Y-%m-%d %H:%M:%S') ---"
@@ -196,7 +196,8 @@ init_sudo() {
         exit 1
     fi
 
-    ( set +e; while true; do sudo -n true; sleep "$SUDO_REFRESH_INTERVAL"; kill -0 "$$" || exit; done 2>/dev/null ) &
+    # PATCH: Close FD 9 to prevent the sleep loop from holding the lock
+    ( exec 9>&-; set +e; while true; do sudo -n true; sleep "$SUDO_REFRESH_INTERVAL"; kill -0 "$$" || exit; done 2>/dev/null ) &
     SUDO_PID=$!
     disown "$SUDO_PID"
 }
@@ -230,11 +231,40 @@ trim() {
     printf '%s' "$var"
 }
 
+# O(1) Memory State Loader (STRICT MODE SAFE)
+load_state() {
+    # Safely wipe the associative array without losing the -A flag
+    unset COMPLETED_SCRIPTS
+    declare -gA COMPLETED_SCRIPTS=()
+
+    # Only attempt to read if the file exists AND is > 0 bytes (-s)
+    if [[ -s "$STATE_FILE" ]]; then
+        # Explicitly declare array to prevent set -u unbound variable exceptions
+        local _state_lines=()
+        mapfile -t _state_lines < "$STATE_FILE" 2>/dev/null || true
+        
+        for _line in "${_state_lines[@]}"; do
+            # Use proper if-statement to prevent set -e short-circuiting on blank lines
+            if [[ -n "$_line" ]]; then
+                COMPLETED_SCRIPTS["$_line"]=1
+            fi
+        done
+    fi
+}
+
 resolve_script() {
     local name="$1"
+
+    # O(1) Lookup: Check if we've already found this file
+    if [[ -n "${SCRIPT_CACHE[$name]:-}" ]]; then
+        printf '%s' "${SCRIPT_CACHE[$name]}"
+        return 0
+    fi
+
     # Contains a slash → direct path, no searching
     if [[ "$name" == */* ]]; then
         if [[ -f "$name" ]]; then
+            SCRIPT_CACHE["$name"]="$name"
             printf '%s' "$name"
             return 0
         fi
@@ -243,6 +273,7 @@ resolve_script() {
     # No slash → search directories in order, first match wins
     for dir in "${SCRIPT_SEARCH_DIRS[@]}"; do
         if [[ -f "${dir}/${name}" ]]; then
+            SCRIPT_CACHE["$name"]="${dir}/${name}"
             printf '%s' "${dir}/${name}"
             return 0
         fi
@@ -318,7 +349,7 @@ preflight_check() {
             exit 1
         fi
     else
-        log "SUCCESS" "All sequence files verified."
+        log "SUCCESS" "All sequence files verified and cached."
     fi
 }
 
@@ -359,12 +390,13 @@ main() {
         exit 1
     fi
 
-    # --- ARGUMENT HANDLING ---
+    # --- READ-ONLY ARGUMENT HANDLING ---
     case "${1:-}" in
         --help|-h)
             show_help
             ;;
         --dry-run|-d)
+            load_state
             echo -e "\n${YELLOW}=== DRY RUN MODE ===${RESET}"
             echo -e "State file: ${BOLD}${STATE_FILE}${RESET}\n"
 
@@ -396,14 +428,14 @@ main() {
                 read -r filename args <<< "$rest"
 
                 local mode_label="USER"
-                [[ "$mode" == "S" ]] && mode_label="SUDO"
+                if [[ "$mode" == "S" ]]; then mode_label="SUDO"; fi
 
                 local status=""
 
                 if ! resolve_script "$filename" > /dev/null; then
                     status="${RED}[MISSING]${RESET}"
                     ((++missing_count))
-                elif [[ -f "$STATE_FILE" ]] && grep -Fxq -- "$filename" "$STATE_FILE" 2>/dev/null; then
+                elif [[ -n "${COMPLETED_SCRIPTS[$filename]:-}" ]]; then
                     status="${GREEN}[DONE]${RESET}"
                     ((++completed_count))
                 else
@@ -418,11 +450,22 @@ main() {
             echo -e "  Total scripts: $i"
             echo -e "  Completed: ${GREEN}${completed_count}${RESET}"
             echo -e "  Pending: ${BLUE}$((i - completed_count - missing_count))${RESET}"
-            [[ $missing_count -gt 0 ]] && echo -e "  Missing: ${RED}${missing_count}${RESET}"
+            if [[ $missing_count -gt 0 ]]; then echo -e "  Missing: ${RED}${missing_count}${RESET}"; fi
             echo ""
             echo "No changes were made."
             exit 0
             ;;
+    esac
+
+    # --- CONCURRENT EXECUTION GUARD ---
+    exec 9>"$LOCK_FILE"
+    if ! flock -n 9; then
+        echo -e "${RED}ERROR: Another instance of this script is already running.${RESET}"
+        exit 1
+    fi
+
+    # --- MUTATING ARGUMENT HANDLING ---
+    case "${1:-}" in
         --reset)
             rm -f "$STATE_FILE"
             echo "State file reset. Starting fresh."
@@ -435,13 +478,6 @@ main() {
             exit 1
             ;;
     esac
-
-    # --- CONCURRENT EXECUTION GUARD ---
-    exec 9>"$LOCK_FILE"
-    if ! flock -n 9; then
-        echo -e "${RED}ERROR: Another instance of this script is already running.${RESET}"
-        exit 1
-    fi
 
     setup_logging
     validate_search_dirs
@@ -474,6 +510,9 @@ main() {
             log "INFO" "Continuing from previous session."
         fi
     fi
+
+    # Load State into O(1) Memory Array
+    load_state
 
     # --- EXECUTION MODE SELECTION ---
     local interactive_mode=0
@@ -534,8 +573,8 @@ main() {
             esac
         done
 
-        # --- STATE FILE SKIP CHECK ---
-        if grep -Fxq -- "$filename" "$STATE_FILE"; then
+        # --- STATE FILE SKIP CHECK (O(1) Array Lookup) ---
+        if [[ -n "${COMPLETED_SCRIPTS[$filename]:-}" ]]; then
             log "WARN" "[${current_index}/${total_scripts}] Skipping $filename (Already Completed)"
             continue
         fi
@@ -583,6 +622,7 @@ main() {
 
             if [[ $result -eq 0 ]]; then
                 echo "$filename" >> "$STATE_FILE"
+                COMPLETED_SCRIPTS["$filename"]=1 # Update Memory Array instantly
                 log "SUCCESS" "Finished $filename"
                 if [[ "$POST_SCRIPT_DELAY" != "0" ]]; then
                     sleep "$POST_SCRIPT_DELAY"
@@ -623,7 +663,7 @@ main() {
         done
         echo -e "\nYou can run them individually from their respective directories:"
         for dir in "${SCRIPT_SEARCH_DIRS[@]}"; do
-            [[ -d "$dir" ]] && echo -e "  ${BOLD}${dir}/${RESET}"
+            if [[ -d "$dir" ]]; then echo -e "  ${BOLD}${dir}/${RESET}"; fi
         done
         echo -e "${YELLOW}================================================================${RESET}\n"
     fi

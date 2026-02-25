@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-
+# creates a new bare github repo to backup your setup
 # ==============================================================================
 # ARCH LINUX DOTFILES CREATOR (FRESH UPLOAD - FINAL FIX)
 # Context: Hyprland / UWSM / Bash 5+

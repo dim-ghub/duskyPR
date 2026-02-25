@@ -1,14 +1,26 @@
 #!/usr/bin/env bash
-# -----------------------------------------------------------------------------
-# File Manager Switcher TUI - Dusky Engine v3.9.1 Based
-# -----------------------------------------------------------------------------
-# Target: Arch Linux / Hyprland / UWSM / Wayland
+# =============================================================================
+# USAGE & AUTOMATION FLAGS
+# =============================================================================
+# This script operates in two modes: Interactive (TUI) and Headless (Automation).
+# 
+# Interactive Mode:
+#   Run without any arguments to launch the TUI. Requires an active TTY.
 #
-# Description: Toggles Hyprland file manager between Thunar (GUI) and Yazi (TUI)
-#              Respects UWSM and Arch Linux standards.
+# Headless/Automation Flags (Strictly single-flag evaluation):
+#   --thunar       : Non-interactively updates keybinds.conf to use Thunar.
+#                    Updates the Dusky state file to 'false'.
+#   --yazi         : Non-interactively updates keybinds.conf to use Yazi.
+#                    Updates the Dusky state file to 'true'.
+#   --apply-state  : Non-interactively reads the Dusky state file at
+#                    ~/.config/dusky/settings/filemanager_switch.
+#                    Applies Yazi if 'true', Thunar if 'false'.
+#                    Ideal for Hyprland exec-once or systemd startup hooks.
+#                    Gracefully exits if the state file does not exist yet.
 #
-# Engine patterns adapted from Dusky TUI Engine Master v3.9.1
-# -----------------------------------------------------------------------------
+# Note: Flag combinations are intentionally unsupported to guarantee atomic,
+# predictable execution. Only the first argument ($1) is evaluated.
+# =============================================================================
 
 set -euo pipefail
 shopt -s extglob
@@ -81,14 +93,20 @@ log_err() {
 }
 
 cleanup() {
-    printf '%s%s%s' "$MOUSE_OFF" "$CURSOR_SHOW" "$C_RESET" 2>/dev/null || :
+    # Only try to restore TUI state if we actually initialized it (checked via ORIGINAL_STTY)
+    # This prevents printing junk escape sequences when running in CLI mode.
     if [[ -n "${ORIGINAL_STTY:-}" ]]; then
+        printf '%s%s%s' "$MOUSE_OFF" "$CURSOR_SHOW" "$C_RESET" 2>/dev/null || :
         stty "$ORIGINAL_STTY" 2>/dev/null || :
     fi
+    
     if [[ -n "${_TMPFILE:-}" && -f "$_TMPFILE" ]]; then
         rm -f "$_TMPFILE" 2>/dev/null || :
     fi
-    printf '\n' 2>/dev/null || :
+    # Only print newline if we were likely in TUI mode
+    if [[ -n "${ORIGINAL_STTY:-}" ]]; then
+        printf '\n' 2>/dev/null || :
+    fi
 }
 
 trap cleanup EXIT
@@ -116,10 +134,18 @@ detect_current_fm() {
     return 1
 }
 
-# --- Atomic Write Engine (from template) ---
+# --- Atomic Write Engine ---
 
 write_fm_switch() {
     local target_fm="$1"
+
+    # Write state file for Dusky FIRST, so it triggers even if already set
+    mkdir -p "${HOME}/.config/dusky/settings"
+    if [[ "$target_fm" == "yazi" ]]; then
+        printf "true\n" > "${HOME}/.config/dusky/settings/filemanager_switch"
+    else
+        printf "false\n" > "${HOME}/.config/dusky/settings/filemanager_switch"
+    fi
 
     if [[ "$CURRENT_FM" == "$target_fm" ]]; then
         STATUS_MSG="${C_YELLOW}Already set to ${target_fm}. No changes made.${C_RESET}"
@@ -133,10 +159,7 @@ write_fm_switch() {
     local old_fm="$CURRENT_FM"
     local new_fm="$target_fm"
 
-    # Atomic awk processing — replaces sed pipeline
-    # Handles both:
-    #   1. $fileManager = <old> → $fileManager = <new>
-    #   2. uwsm-app launch path adjustment
+    # Atomic awk processing
     if ! LC_ALL=C awk -v old_fm="$old_fm" -v new_fm="$new_fm" '
     {
         line = $0
@@ -149,11 +172,8 @@ write_fm_switch() {
         # 2. Adjust keybind exec line based on target
         if (line ~ /uwsm-app/ && line ~ /\$fileManager/ && line !~ /^[[:space:]]*#/) {
             if (new_fm == "thunar") {
-                # Remove terminal wrapper: "uwsm-app -- $terminal -e $fileManager" → "uwsm-app $fileManager"
                 gsub(/uwsm-app -- \$terminal -e \$fileManager/, "uwsm-app $fileManager", line)
             } else if (new_fm == "yazi") {
-                # Add terminal wrapper: "uwsm-app $fileManager" → "uwsm-app -- $terminal -e $fileManager"
-                # Guard: only if not already wrapped
                 if (line !~ /\$terminal -e/) {
                     gsub(/uwsm-app \$fileManager/, "uwsm-app -- $terminal -e $fileManager", line)
                 }
@@ -169,7 +189,7 @@ write_fm_switch() {
         return 1
     fi
 
-    # CRITICAL: Use cat > target to preserve symlinks/inodes (from template)
+    # CRITICAL: Use cat > target to preserve symlinks/inodes
     cat "$_TMPFILE" > "$CONFIG_FILE"
     rm -f "$_TMPFILE"
     _TMPFILE=""
@@ -371,9 +391,8 @@ handle_input() {
 # --- Main ---
 
 main() {
-    # Pre-flight checks (from template)
+    # 1. Base Environment Checks (Headless-safe)
     if (( BASH_VERSINFO[0] < 5 )); then log_err "Bash 5.0+ required"; exit 1; fi
-    if [[ ! -t 0 ]]; then log_err "TTY required"; exit 1; fi
     if [[ ! -f "$CONFIG_FILE" ]]; then log_err "Config not found: $CONFIG_FILE"; exit 1; fi
     if [[ ! -w "$CONFIG_FILE" ]]; then log_err "Config not writable: $CONFIG_FILE"; exit 1; fi
 
@@ -384,9 +403,72 @@ main() {
         fi
     done
 
-    # Detect current state
+    # 2. Detect current state (Required for both CLI and TUI)
     if ! detect_current_fm; then
         log_err "Could not detect \$fileManager in config file"
+        exit 1
+    fi
+
+    # 3. Handle CLI automation arguments FIRST (Does not require TTY)
+    case "${1:-}" in
+        --thunar)
+            if write_fm_switch "thunar"; then
+                printf '%s\n' "$STATUS_MSG"
+                exit 0
+            else
+                printf '%s\n' "$STATUS_MSG" >&2
+                exit 1
+            fi
+            ;;
+        --yazi)
+            if write_fm_switch "yazi"; then
+                printf '%s\n' "$STATUS_MSG"
+                exit 0
+            else
+                printf '%s\n' "$STATUS_MSG" >&2
+                exit 1
+            fi
+            ;;
+        --apply-state)
+            local state_file="${HOME}/.config/dusky/settings/filemanager_switch"
+
+            # CRITICAL FIX: Graceful fallback for fresh installs/missing state
+            if [[ ! -f "$state_file" ]]; then
+                STATUS_MSG="${C_YELLOW}State file missing. Preserving current file manager: ${CURRENT_FM}${C_RESET}"
+                printf '%s\n' "$STATUS_MSG"
+                exit 0
+            fi
+
+            # Robust read: handles missing EOF newline gracefully
+            local state_val
+            IFS= read -r state_val < "$state_file" || true
+            state_val="${state_val%%[[:space:]]*}" # Clean trailing whitespace/newlines
+
+            local target_fm=""
+            if [[ "$state_val" == "true" ]]; then
+                target_fm="yazi"
+            elif [[ "$state_val" == "false" ]]; then
+                target_fm="thunar"
+            else
+                log_err "Invalid state in ${state_file}: '${state_val}'"
+                exit 1
+            fi
+
+            if write_fm_switch "$target_fm"; then
+                printf '%s\n' "$STATUS_MSG"
+                exit 0
+            else
+                printf '%s\n' "$STATUS_MSG" >&2
+                exit 1
+            fi
+            ;;
+    esac
+
+    # ==========================================================
+    # 4. TUI Initialization (Requires TTY)
+    # ==========================================================
+    if [[ ! -t 0 ]]; then 
+        log_err "TTY required for interactive mode"
         exit 1
     fi
 
@@ -399,7 +481,7 @@ main() {
         fi
     done
 
-    # Terminal setup (from template)
+    # Terminal setup
     ORIGINAL_STTY=$(stty -g 2>/dev/null) || ORIGINAL_STTY=""
     stty -icanon -echo min 1 time 0 2>/dev/null
 

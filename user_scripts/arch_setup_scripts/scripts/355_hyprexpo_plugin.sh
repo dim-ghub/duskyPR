@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# hyprexpo hyprland plugin
 # ==============================================================================
 # Script: 063_hyprexpo_plugin.sh
 # Description: Toggles Hyprland HyprExpo plugin and manages hyprpm dependencies.

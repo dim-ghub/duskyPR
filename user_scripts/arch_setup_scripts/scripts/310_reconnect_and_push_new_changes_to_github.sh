@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-
+# reconnects to an existing github bare repo to sync backup
 # ==============================================================================
 # ARCH LINUX DOTFILES SYNC (MANUAL SPEEDRUN REPLICA - FINAL FIX)
 # Context: Hyprland / UWSM / Bash 5+

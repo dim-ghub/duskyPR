@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# generates color files for current wallpaer
 # Description: Queries the active swww wallpaper and regenerates the Matugen color scheme.
 # Usage: Run manually or bind to a key/hook.
 # Dependencies: swww, matugen, jq, hyprland (optional, for focused monitor detection)

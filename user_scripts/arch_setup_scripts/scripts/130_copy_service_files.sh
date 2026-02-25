@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
-# -----------------------------------------------------------------------------
-# Script: service_manager.sh
-# Description: Installs multiple systemd user services and manages their state.
-# Environment: Arch Linux / Hyprland / UWSM
-# Author: DevOps Assistant
-# -----------------------------------------------------------------------------
+# Installs multiple systemd user services and manages their state.
 
 # --- Strict Error Handling ---
 # -e: Exit immediately if a command exits with a non-zero status.
@@ -45,6 +40,9 @@ readonly SERVICES_CONFIG=(
     # dusky update checker
     "$HOME/user_scripts/update_dusky/update_checker/service/update_checker.service | disable"
     "$HOME/user_scripts/update_dusky/update_checker/service/update_checker.timer | enable"
+
+    # dusky sliders
+    "$HOME/user_scripts/sliders/service/dusky_sliders.service | enable"
 )
 
 # XDG Standard: ~/.config/systemd/user

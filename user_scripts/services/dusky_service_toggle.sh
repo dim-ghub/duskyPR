@@ -53,6 +53,7 @@ declare -ra USER_SERVICE_DEFS=(
     "battery_notify.service|Battery Level Notifications"
     "network_meter.service|Waybar Network Traffic Monitor"
     "dusky.service|Dusky Background Service"
+    "dusky_sliders.service|Dusky Sliders Service"
     "update_checker.timer|Automatic Update Checker"
     "hypridle.service|Hyprland Idle Daemon"
 )
@@ -298,9 +299,9 @@ acquire_sudo() {
     # Clear screen and show prompt
     printf '%s%s' "$CLR_SCREEN" "$CURSOR_HOME"
     printf '\n'
-    printf '  %s┌──────────────────────────────────────────────┐%s\n' "$C_MAGENTA" "$C_RESET"
+    printf '  %s┌────────────────────────────────────────────────┐%s\n' "$C_MAGENTA" "$C_RESET"
     printf '  %s│%s  System services require administrator access  %s│%s\n' "$C_MAGENTA" "$C_YELLOW" "$C_MAGENTA" "$C_RESET"
-    printf '  %s└──────────────────────────────────────────────┘%s\n' "$C_MAGENTA" "$C_RESET"
+    printf '  %s└────────────────────────────────────────────────┘%s\n' "$C_MAGENTA" "$C_RESET"
     printf '\n'
 
     local -i result=0

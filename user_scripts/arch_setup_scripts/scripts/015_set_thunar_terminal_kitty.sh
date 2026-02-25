@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Automates Thunar Custom Action (uca.xml) configuration for Kitty.
+# Sets up "right click to open in terminal" for thunar
 # Environment: Arch Linux / Hyprland / UWSM
 # Author: Elite DevOps Engineer
 #

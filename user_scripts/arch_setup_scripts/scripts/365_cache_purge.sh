@@ -2,173 +2,241 @@
 # ==============================================================================
 #  ARCH LINUX CACHE PURGE & OPTIMIZER
 # ==============================================================================
-#  Description: Aggressively cleans Pacman, Paru, and Yay caches to reclaim space.
-#               Includes fixes for stuck 'download-*' directories.
-#               Calculates and displays total space saved in MB.
-#  Mode:        USER (U) - Handles sudo internally for Pacman.
-# ==============================================================================
 
 # --- 1. Safety & Environment ---
-set -o errexit   # Exit on error
-set -o nounset   # Exit on unset variables
-set -o pipefail  # Exit if pipe fails
+set -o errexit
+set -o nounset
+set -o pipefail
 
-# --- 2. Visuals (ANSI with $'') ---
-readonly R=$'\e[31m'
-readonly G=$'\e[32m'
-readonly Y=$'\e[33m'
-readonly B=$'\e[34m'
-readonly RESET=$'\e[0m'
-readonly BOLD=$'\e[1m'
+# --- 2. Visuals (with terminal detection) ---
+if [[ -t 1 ]]; then
+    readonly R=$'\e[31m'
+    readonly G=$'\e[32m'
+    readonly Y=$'\e[33m'
+    readonly B=$'\e[34m'
+    readonly RESET=$'\e[0m'
+    readonly BOLD=$'\e[1m'
+else
+    readonly R=''
+    readonly G=''
+    readonly Y=''
+    readonly B=''
+    readonly RESET=''
+    readonly BOLD=''
+fi
 
-# --- 3. Targets ---
-# We track these directories to calculate space saved
-readonly PACMAN_CACHE="/var/cache/pacman/pkg"
-readonly PARU_CACHE="${HOME}/.cache/paru"
-readonly YAY_CACHE="${HOME}/.cache/yay"
+log() { printf "%s::%s %s\n" "$B" "$RESET" "$1"; }
 
-# --- 4. Helper Functions ---
+# --- 3. Dynamic Configuration ---
+# Collect ALL pacman cache directories
+PACMAN_CACHES=()
+if command -v pacman-conf &>/dev/null; then
+    while IFS= read -r line; do
+        line="${line%/}"
+        [[ -n "$line" ]] && PACMAN_CACHES+=("$line")
+    done < <(pacman-conf CacheDir 2>/dev/null)
+fi
+# Fallback if pacman-conf returned nothing or wasn't available
+if [[ ${#PACMAN_CACHES[@]} -eq 0 ]]; then
+    PACMAN_CACHES=("/var/cache/pacman/pkg")
+fi
+readonly PACMAN_CACHES
 
-log() {
-    printf "%s%s%s %s\n" "${B}" "::" "${RESET}" "$1"
-    sleep 0.5
+# Determine sync database path from pacman config
+_sync_db=""
+if command -v pacman-conf &>/dev/null; then
+    _sync_db="$(pacman-conf DBPath 2>/dev/null || true)"
+    _sync_db="${_sync_db%/}"
+    [[ -n "$_sync_db" ]] && _sync_db="${_sync_db}/sync"
+fi
+readonly PACMAN_SYNC_DB="${_sync_db:-/var/lib/pacman/sync}"
+unset _sync_db
+
+# Respect XDG_CACHE_HOME for AUR helper cache paths
+readonly XDG_CACHE="${XDG_CACHE_HOME:-${HOME}/.cache}"
+readonly PARU_CACHE="${XDG_CACHE}/paru"
+readonly YAY_CACHE="${XDG_CACHE}/yay"
+
+# --- 4. Cleanup Tracking ---
+SUDO_KEEPALIVE_PID=""
+
+cleanup() {
+    if [[ -n "$SUDO_KEEPALIVE_PID" ]] && kill -0 "$SUDO_KEEPALIVE_PID" 2>/dev/null; then
+        kill "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
+        wait "$SUDO_KEEPALIVE_PID" 2>/dev/null || true
+    fi
 }
+trap cleanup EXIT
+
+# --- 5. Helper Functions ---
 
 get_dir_size_mb() {
     local target="$1"
-    # If directory doesn't exist, size is 0
+    local size
+
     if [[ ! -d "$target" ]]; then
         echo "0"
         return
     fi
-    
-    # usage: du -sm (summarize, megabytes)
-    # handling sudo if not owned by user
-    if [[ -w "$target" ]]; then
-        du -sm "$target" 2>/dev/null | cut -f1
+
+    # Use -r (readable) not -w (writable): du only needs read+execute access.
+    # Use '--' to guard against paths starting with a dash.
+    if [[ -r "$target" && -x "$target" ]]; then
+        size=$(du -sm -- "$target" 2>/dev/null | cut -f1 || true)
     else
-        sudo du -sm "$target" 2>/dev/null | cut -f1
+        size=$(sudo du -sm -- "$target" 2>/dev/null | cut -f1 || true)
+    fi
+
+    if [[ "$size" =~ ^[0-9]+$ ]]; then
+        echo "$size"
+    else
+        echo "0"
     fi
 }
 
-# --- 5. Main Execution ---
+# Sum sizes of multiple directories
+get_dirs_size_mb() {
+    local total=0
+    local s
+    local dir
+    for dir in "$@"; do
+        s=$(get_dir_size_mb "$dir")
+        total=$((total + s))
+    done
+    echo "$total"
+}
+
+# --- 6. Main Execution ---
 
 main() {
-    echo -e "${BOLD}Starting Aggressive Cache Cleanup...${RESET}"
-    sleep 0.5
+    printf "%sStarting Aggressive Cache Cleanup...%s\n" "$BOLD" "$RESET"
 
-    # --- Step 1: Pre-Flight Check ---
+    # Pre-Flight: Validate sudo
+    if ! sudo -v; then
+        printf "%sError: Sudo authentication failed.%s\n" "$R" "$RESET"
+        exit 1
+    fi
+
+    # Keep sudo alive in background; disable errexit so a transient
+    # sudo -n failure doesn't silently kill the keepalive loop.
+    (
+        set +o errexit
+        while true; do
+            sudo -n true 2>/dev/null
+            sleep 50
+            kill -0 "$$" 2>/dev/null || exit 0
+        done
+    ) &
+    SUDO_KEEPALIVE_PID=$!
+
     local has_paru=false
     local has_yay=false
+    command -v paru &>/dev/null && has_paru=true
+    command -v yay &>/dev/null && has_yay=true
 
-    if command -v paru &>/dev/null; then has_paru=true; fi
-    if command -v yay &>/dev/null; then has_yay=true; fi
-
-    if [[ "$has_paru" == "false" && "$has_yay" == "false" ]]; then
-        echo -e "${Y}Warning: No AUR helpers (yay/paru) detected. Cleaning Pacman only.${RESET}"
-    fi
-
-    # --- Step 2: Measure Initial Size ---
+    # --- Measure Initial Sizes ---
     log "Measuring current cache usage..."
-    
-    local pacman_start
-    local paru_start=0
-    local yay_start=0
-    
-    pacman_start=$(get_dir_size_mb "$PACMAN_CACHE")
-    echo -e "   ${BOLD}Pacman Cache:${RESET} ${pacman_start} MB"
 
+    local pacman_start
+    pacman_start=$(get_dirs_size_mb "${PACMAN_CACHES[@]}")
+    printf "   %sPacman Cache:%s   %s MB\n" "$BOLD" "$RESET" "$pacman_start"
+
+    local sync_start
+    sync_start=$(get_dir_size_mb "$PACMAN_SYNC_DB")
+    printf "   %sSync Database:%s  %s MB\n" "$BOLD" "$RESET" "$sync_start"
+
+    local paru_start=0
     if [[ "$has_paru" == "true" ]]; then
         paru_start=$(get_dir_size_mb "$PARU_CACHE")
-        echo -e "   ${BOLD}Paru Cache:${RESET}   ${paru_start} MB"
+        printf "   %sParu Cache:%s    %s MB\n" "$BOLD" "$RESET" "$paru_start"
     fi
 
+    local yay_start=0
     if [[ "$has_yay" == "true" ]]; then
         yay_start=$(get_dir_size_mb "$YAY_CACHE")
-        echo -e "   ${BOLD}Yay Cache:${RESET}    ${yay_start} MB"
+        printf "   %sYay Cache:%s     %s MB\n" "$BOLD" "$RESET" "$yay_start"
     fi
-    
-    local total_start=$((pacman_start + paru_start + yay_start))
-    sleep 0.5
 
-    # --- Step 3: Clean Pacman (System Level) ---
-    log "Purging Pacman cache (System)..."
-    
-    if sudo -v; then
-        # === FIX: Remove stuck download directories before pacman sees them ===
-        # Finds directories named 'download-*' inside pkg cache and nukes them.
-        # This prevents "Is a directory" errors during -Scc.
-        if [[ -d "$PACMAN_CACHE" ]]; then
-            # 'find' is safer than shell expansion here
-            if sudo find "$PACMAN_CACHE" -maxdepth 1 -type d -name "download-*" -print -quit | grep -q .; then
-                 echo -e "   ${Y}Found stuck download directories. Removing...${RESET}"
-                 sudo find "$PACMAN_CACHE" -maxdepth 1 -type d -name "download-*" -exec rm -rf {} +
-            fi
+    local total_start=$((pacman_start + sync_start + paru_start + yay_start))
+
+    # --- Clean Stuck Partial Downloads (across all pacman cache dirs) ---
+    local cache_dir
+    for cache_dir in "${PACMAN_CACHES[@]}"; do
+        if [[ -d "$cache_dir" ]]; then
+            sudo find "$cache_dir" -maxdepth 1 -type f -name "*.part" -delete 2>/dev/null || true
         fi
+    done
 
-        # Standard Pacman Clean
-        # We pipe 'yes' to answer "y" to:
-        # 1. Remove ALL files from cache?
-        # 2. Remove unused repositories?
-        yes | sudo pacman -Scc > /dev/null 2>&1 || true
-        echo -e "   ${G}✔ Pacman cache cleared.${RESET}"
-    else
-        echo -e "   ${R}✘ Sudo authentication failed. Skipping Pacman.${RESET}"
-    fi
-    sleep 0.5
+    # --- Clean Caches ---
+    # If an AUR helper is present, its -Scc also cleans the pacman cache,
+    # so we avoid running pacman -Scc redundantly.
+    local pacman_cleaned_by_helper=false
 
-    # --- Step 4: Clean AUR Helpers (User Level) ---
-    
-    # Clean Paru
     if [[ "$has_paru" == "true" ]]; then
-        log "Purging Paru cache (AUR)..."
-        # Paru cleanup
-        yes | paru -Scc > /dev/null 2>&1 || true
-        echo -e "   ${G}✔ Paru cache cleared.${RESET}"
+        log "Purging Paru cache (includes Pacman cache)..."
+        yes | paru -Scc 2>/dev/null || true
+        printf "   %s✔ Paru cache cleared.%s\n" "$G" "$RESET"
+        pacman_cleaned_by_helper=true
     fi
 
-    # Clean Yay
     if [[ "$has_yay" == "true" ]]; then
-        log "Purging Yay cache (AUR)..."
-        # Yay cleanup. 
-        # Note: yay -Scc might ask to clean system cache too, but since we
-        # ran pacman -Scc already, it's fine. We suppress output anyway.
-        yes | yay -Scc > /dev/null 2>&1 || true
-        echo -e "   ${G}✔ Yay cache cleared.${RESET}"
+        if [[ "$pacman_cleaned_by_helper" == "true" ]]; then
+            log "Purging Yay cache..."
+        else
+            log "Purging Yay cache (includes Pacman cache)..."
+        fi
+        yes | yay -Scc 2>/dev/null || true
+        printf "   %s✔ Yay cache cleared.%s\n" "$G" "$RESET"
+        pacman_cleaned_by_helper=true
     fi
 
-    sleep 0.5
+    if [[ "$pacman_cleaned_by_helper" == "false" ]]; then
+        log "Purging Pacman cache (System)..."
+        yes | sudo pacman -Scc 2>/dev/null || true
+        printf "   %s✔ Pacman cache cleared.%s\n" "$G" "$RESET"
+    fi
 
-    # --- Step 5: Measure Final Size ---
+    # --- Final Report ---
     log "Calculating reclaimed space..."
-    
+
     local pacman_end
+    pacman_end=$(get_dirs_size_mb "${PACMAN_CACHES[@]}")
+
+    local sync_end
+    sync_end=$(get_dir_size_mb "$PACMAN_SYNC_DB")
+
     local paru_end=0
+    if [[ "$has_paru" == "true" ]]; then
+        paru_end=$(get_dir_size_mb "$PARU_CACHE")
+    fi
+
     local yay_end=0
-    
-    pacman_end=$(get_dir_size_mb "$PACMAN_CACHE")
-    if [[ "$has_paru" == "true" ]]; then paru_end=$(get_dir_size_mb "$PARU_CACHE"); fi
-    if [[ "$has_yay" == "true" ]]; then yay_end=$(get_dir_size_mb "$YAY_CACHE"); fi
-    
-    local total_end=$((pacman_end + paru_end + yay_end))
+    if [[ "$has_yay" == "true" ]]; then
+        yay_end=$(get_dir_size_mb "$YAY_CACHE")
+    fi
+
+    local total_end=$((pacman_end + sync_end + paru_end + yay_end))
     local saved=$((total_start - total_end))
 
-    # --- Step 6: Final Report ---
-    echo ""
-    echo -e "${BOLD}========================================${RESET}"
-    echo -e "${BOLD}       DISK SPACE RECLAIMED REPORT      ${RESET}"
-    echo -e "${BOLD}========================================${RESET}"
-    printf "${BOLD}Initial Usage:${RESET} %s MB\n" "$total_start"
-    printf "${BOLD}Final Usage:${RESET}   %s MB\n" "$total_end"
-    echo -e "${BOLD}----------------------------------------${RESET}"
-    
-    if [[ $saved -gt 0 ]]; then
-        printf "${G}${BOLD}TOTAL CLEARED:${RESET} ${G}%s MB${RESET}\n" "$saved"
-    else
-        printf "${Y}${BOLD}TOTAL CLEARED:${RESET} ${Y}0 MB (Already Clean)${RESET}\n"
+    # Clamp to 0 if somehow negative (cache grew between measurements)
+    if [[ $saved -lt 0 ]]; then
+        saved=0
     fi
-    echo -e "${BOLD}========================================${RESET}"
+
+    echo ""
+    printf "%s========================================%s\n" "$BOLD" "$RESET"
+    printf "%s       DISK SPACE RECLAIMED REPORT      %s\n" "$BOLD" "$RESET"
+    printf "%s========================================%s\n" "$BOLD" "$RESET"
+    printf "%sInitial Usage:%s  %s MB\n" "$BOLD" "$RESET" "$total_start"
+    printf "%sFinal Usage:%s    %s MB\n" "$BOLD" "$RESET" "$total_end"
+    printf "%s----------------------------------------%s\n" "$BOLD" "$RESET"
+
+    if [[ $saved -gt 0 ]]; then
+        printf "%s%sTOTAL CLEARED:%s %s%s MB%s\n" "$G" "$BOLD" "$RESET" "$G" "$saved" "$RESET"
+    else
+        printf "%s%sTOTAL CLEARED:%s %s0 MB (Already Clean)%s\n" "$Y" "$BOLD" "$RESET" "$Y" "$RESET"
+    fi
+    printf "%s========================================%s\n" "$BOLD" "$RESET"
 }
 
-# Run
 main

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# KOKORO gpu setup
 # ==============================================================================
 # Script Name: install_kokoro_gpu.sh
 # Description: Automates the setup of Kokoro GPU (CUDA/cuDNN) + UV environment.

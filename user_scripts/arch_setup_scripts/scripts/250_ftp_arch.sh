@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
-# ==============================================================================
-# Arch Linux VSFTPD Automation Script
-# Target Environment: Arch Linux / Hyprland / UWSM
-# Description: Automates the setup of a secure vsftpd server based on specific
-#              MOC FTP notes. Handles firewall, permissions, and config generation.
-# ==============================================================================
+# Automates the setup of a secure vsftpd server
 
 # 1. Strict Mode & Environment Setup
 set -euo pipefail

@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# ==============================================================================
-# Script Name: setup_hypr_overlay.sh
-# Description: Initializes or validates the 'edit_here' user configuration 
-#              overlay for Hyprland. Ensures all template files exist.
+# Initializes or validates the 'edit_here' user configuration overlay for Hyprland.
+#              Ensures all template files exist.
 #              Designed for Arch Linux/Hyprland/UWSM environments.
 #
 # Usage:       ./setup_hypr_overlay.sh [--force]

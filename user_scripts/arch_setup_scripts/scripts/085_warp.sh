@@ -1,14 +1,5 @@
 #!/usr/bin/env bash
-# =============================================================================
-# Cloudflare Warp VPN Setup Script for Arch Linux
-# =============================================================================
-# Description: Fully autonomous setup of Cloudflare Warp.
-#              - Manual AUR build (bypasses sudo prompts).
-#              - Runs warp-cli as SUDO_USER.
-#              - Includes Smart Polling for connection verification.
-#              - Persists TOS acceptance using PTY emulation (script command).
-#              - Implements robust signal handling and cleanup.
-# =============================================================================
+# Installs and configures Cloudflare warp 1.1.1.1
 
 set -euo pipefail
 IFS=$'\n\t'

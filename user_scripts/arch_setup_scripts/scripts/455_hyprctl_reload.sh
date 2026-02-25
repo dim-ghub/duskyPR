@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# hyprctl reload to refresh hyprland
 # Description: Safely reloads Hyprland configuration with timeout protection.
 
 set -u

@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
-# ==============================================================================
-#  MODULE: Persistence Manager (Backup/Restore/Delete)
-#  CONTEXT: Hyprland / UWSM / Arch Linux
-#  DESCRIPTION: Manages backup, restoration, and cleanup of Clipboard (Cliphist) 
-#               and Errands data.
-# ==============================================================================
+#  Manages backup, restoration, and cleanup of Clipboard (Cliphist) and Errands data.
 
 # 1. Strict Error Handling
 set -euo pipefail

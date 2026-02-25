@@ -1,9 +1,5 @@
 #!/usr/bin/env bash
-# =============================================================================
-# Dusk Wallpaper Installer for Arch/Hyprland
-# - Idempotent: safe to re-run (cleans old installations, validates cache)
-# - Robust: correct terminal handling, atomic moves, safe globbing
-# =============================================================================
+# Downloads dusky wallpaers and copies them to the required directory
 
 set -euo pipefail
 

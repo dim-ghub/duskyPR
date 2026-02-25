@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# vesktop setup , a better discord client
 
 # ==============================================================================
 #  Vesktop & Matugen Automation Suite

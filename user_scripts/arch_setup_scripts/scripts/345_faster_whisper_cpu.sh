@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Faster whisper speech to text setup
 # ==============================================================================
 # Script Name: install_faster_whisper.sh
 # Description: Automates the setup of faster-whisper in a strict uv environment.

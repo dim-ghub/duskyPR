@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-#
+# Kokoro CPU setup
 # install_kokoros_v2.sh
 # -----------------------------------------------------------------------------
 # Elite DevOps Setup for Kokoros (CPU/Rust/ONNX) on Arch/Hyprland/UWSM.

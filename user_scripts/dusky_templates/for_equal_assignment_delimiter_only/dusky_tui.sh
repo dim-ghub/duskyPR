@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 # -----------------------------------------------------------------------------
-# Dusky TUI Engine - Master v3.9.2
+# Dusky TUI Engine - Master v3.9.5
 # -----------------------------------------------------------------------------
 # Target: Arch Linux / Hyprland / UWSM / Wayland
+#
+# v3.9.5 CHANGELOG:
+#   - SECURITY: Switched to ENVIRON-based awk passing to prevent injection.
+#   - FIX: Added empty-file check before overwriting config (Data Loss Prevention).
+#   - FIX: Corrected Tab Click offset calculation (Bug 1.1).
+#   - UX: Added ellipsis (…) for truncated item labels.
+#
+# v3.9.3 CHANGELOG:
+#   - FEAT: Backported "Scrollable Tabs" & Clickable Arrows (Safe Layout).
 #
 # v3.9.2 CHANGELOG:
 #   - FIX: Guarded bare (( any_written )) in reset_defaults() against set -e.
@@ -41,7 +50,7 @@ shopt -s extglob
 # POINT THIS TO YOUR REAL CONFIG FILE
 declare -r CONFIG_FILE="${HOME}/.config/hypr/change_me.conf"
 declare -r APP_TITLE="Input Config Editor"
-declare -r APP_VERSION="v3.9.2 (Hardened)"
+declare -r APP_VERSION="v3.9.5 (Hardened)"
 
 # Dimensions & Layout
 declare -ri MAX_DISPLAY_ROWS=14
@@ -125,6 +134,7 @@ declare -i CURRENT_TAB=0
 declare -i SCROLL_OFFSET=0
 declare -ri TAB_COUNT=${#TABS[@]}
 declare -a TAB_ZONES=()
+declare -i TAB_SCROLL_START=0   # <--- ADDED: For sliding tabs
 declare ORIGINAL_STTY=""
 
 # View State
@@ -135,6 +145,10 @@ declare -i PARENT_SCROLL=0     # Saved scroll to return to
 
 # Temp file global
 declare _TMPFILE=""
+
+# --- Click Zones for Arrows (ADDED) ---
+declare LEFT_ARROW_ZONE=""
+declare RIGHT_ARROW_ZONE=""
 
 # --- Data Structures ---
 declare -A ITEM_MAP=()
@@ -295,12 +309,17 @@ write_value_to_file() {
         _TMPFILE=$(mktemp "${CONFIG_FILE}.tmp.XXXXXXXXXX")
     fi
 
-    if ! LC_ALL=C awk -v target_block="$block" -v target_key="$key" -v new_value="$new_val" '
+    # FIX (6.1): Use ENVIRON to prevent awk injection attacks
+    TARGET_BLOCK="$block" TARGET_KEY="$key" NEW_VALUE="$new_val" \
+    LC_ALL=C awk '
     BEGIN {
         depth = 0
         in_target = 0
         target_depth = 0
         replaced = 0
+        target_block = ENVIRON["TARGET_BLOCK"]
+        target_key = ENVIRON["TARGET_KEY"]
+        new_value = ENVIRON["NEW_VALUE"]
         do_block = (target_block != "")
     }
     {
@@ -369,7 +388,14 @@ write_value_to_file() {
         }
     }
     END { exit (replaced ? 0 : 1) }
-    ' "$CONFIG_FILE" > "$_TMPFILE"; then
+    ' "$CONFIG_FILE" > "$_TMPFILE" || {
+        rm -f "$_TMPFILE" 2>/dev/null || :
+        _TMPFILE=""
+        return 1
+    }
+
+    # FIX (2.4): Verify temp file integrity before truncating config
+    if [[ ! -s "$_TMPFILE" ]]; then
         rm -f "$_TMPFILE" 2>/dev/null || :
         _TMPFILE=""
         return 1
@@ -630,7 +656,14 @@ render_item_list() {
                 ;;
         esac
 
-        printf -v padded_item "%-${ITEM_PADDING}s" "${item:0:${ITEM_PADDING}}"
+        # FIX (4.2): Add ellipsis for truncated items
+        local max_len=$(( ITEM_PADDING - 1 ))
+        if (( ${#item} > ITEM_PADDING )); then
+            printf -v padded_item "%-${max_len}s…" "${item:0:max_len}"
+        else
+            printf -v padded_item "%-${ITEM_PADDING}s" "$item"
+        fi
+
         if (( ri == SELECTED_ROW )); then
             _ril_buf+="${C_CYAN} ➤ ${C_INVERSE}${padded_item}${C_RESET} : ${display}${CLR_EOL}"$'\n'
         else
@@ -665,30 +698,80 @@ draw_main_view() {
     printf -v pad_buf '%*s' "$right_pad" ''
     buf+="${pad_buf}│${C_RESET}${CLR_EOL}"$'\n'
 
-    local tab_line="${C_MAGENTA}│ "
-    TAB_ZONES=()
-
-    for (( i = 0; i < TAB_COUNT; i++ )); do
-        local name="${TABS[i]}"
-        len=${#name}
-        zone_start=$current_col
-        if (( i == CURRENT_TAB )); then
-            tab_line+="${C_CYAN}${C_INVERSE} ${name} ${C_RESET}${C_MAGENTA}│ "
-        else
-            tab_line+="${C_GREY} ${name} ${C_MAGENTA}│ "
-        fi
-        TAB_ZONES+=("${zone_start}:$(( zone_start + len + 1 ))")
-        current_col=$(( current_col + len + 4 ))
-    done
-
-    pad_needed=$(( BOX_INNER_WIDTH - current_col + 2 ))
-    if (( pad_needed < 0 )); then pad_needed=0; fi
-
-    if (( pad_needed > 0 )); then
-        printf -v pad_buf '%*s' "$pad_needed" ''
-        tab_line+="${pad_buf}"
+    # --- NEW: Scrollable Tab Rendering (Sliding Window) ---
+    if (( TAB_SCROLL_START > CURRENT_TAB )); then
+        TAB_SCROLL_START=$CURRENT_TAB
     fi
-    tab_line+="${C_MAGENTA}│${C_RESET}"
+
+    local tab_line
+    # Use config width minus borders (2) and margins (4 approx)
+    local -i max_tab_width=$(( BOX_INNER_WIDTH - 6 ))
+
+    LEFT_ARROW_ZONE=""
+    RIGHT_ARROW_ZONE=""
+
+    while true; do
+        tab_line="${C_MAGENTA}│ "
+        current_col=3
+        TAB_ZONES=()
+        local -i used_len=0
+
+        # Left Arrow
+        if (( TAB_SCROLL_START > 0 )); then
+            tab_line+="${C_YELLOW}«${C_RESET} "
+            LEFT_ARROW_ZONE="$current_col:$((current_col+1))"
+            used_len=$(( used_len + 2 ))
+            current_col=$(( current_col + 2 ))
+        else
+            tab_line+="  "
+            used_len=$(( used_len + 2 ))
+            current_col=$(( current_col + 2 ))
+        fi
+
+        for (( i = TAB_SCROLL_START; i < TAB_COUNT; i++ )); do
+            local name="${TABS[i]}"
+            local t_len=${#name}
+            # Visual chars: Space + Name + Space + Pipe + Space = NameLen + 4
+            local chunk_len=$(( t_len + 4 ))
+
+            local reserve=0
+            if (( i < TAB_COUNT - 1 )); then reserve=2; fi
+
+            if (( used_len + chunk_len + reserve > max_tab_width )); then
+                if (( i <= CURRENT_TAB )); then
+                    TAB_SCROLL_START=$(( TAB_SCROLL_START + 1 ))
+                    continue 2
+                fi
+                # Right Arrow
+                tab_line+="${C_YELLOW}» ${C_RESET}"
+                RIGHT_ARROW_ZONE="$current_col:$((current_col+1))"
+                used_len=$(( used_len + 2 ))
+                break
+            fi
+
+            zone_start=$current_col
+            if (( i == CURRENT_TAB )); then
+                tab_line+="${C_CYAN}${C_INVERSE} ${name} ${C_RESET}${C_MAGENTA}│ "
+            else
+                tab_line+="${C_GREY} ${name} ${C_MAGENTA}│ "
+            fi
+            
+            TAB_ZONES+=("${zone_start}:$(( zone_start + t_len + 1 ))")
+            used_len=$(( used_len + chunk_len ))
+            current_col=$(( current_col + chunk_len ))
+        done
+
+        # Alignment fix: -1 accounts for leading space in "│ "
+        local pad=$(( BOX_INNER_WIDTH - used_len - 1 ))
+        if (( pad > 0 )); then
+            printf -v pad_buf '%*s' "$pad" ''
+            tab_line+="$pad_buf"
+        fi
+        
+        tab_line+="${C_MAGENTA}│${C_RESET}"
+        break
+    done
+    # --------------------------------------------------------
 
     buf+="${tab_line}${CLR_EOL}"$'\n'
     buf+="${C_MAGENTA}└${H_LINE}┘${C_RESET}${CLR_EOL}"$'\n'
@@ -880,11 +963,27 @@ handle_mouse() {
 
     if (( y == TAB_ROW )); then
         if (( CURRENT_VIEW == 0 )); then
+            # --- ADDED: Arrow Handling for scrollable tabs ---
+            if [[ -n "$LEFT_ARROW_ZONE" ]]; then
+                start="${LEFT_ARROW_ZONE%%:*}"
+                end="${LEFT_ARROW_ZONE##*:}"
+                if (( x >= start && x <= end )); then switch_tab -1; return 0; fi
+            fi
+            if [[ -n "$RIGHT_ARROW_ZONE" ]]; then
+                start="${RIGHT_ARROW_ZONE%%:*}"
+                end="${RIGHT_ARROW_ZONE##*:}"
+                if (( x >= start && x <= end )); then switch_tab 1; return 0; fi
+            fi
+            # ---------------------------
+
             for (( i = 0; i < TAB_COUNT; i++ )); do
+                # Check if zone exists (visible)
+                if [[ -z "${TAB_ZONES[i]:-}" ]]; then continue; fi
                 zone="${TAB_ZONES[i]}"
                 start="${zone%%:*}"
                 end="${zone##*:}"
-                if (( x >= start && x <= end )); then set_tab "$i"; return 0; fi
+                # FIX (1.1): Account for scroll offset in click target
+                if (( x >= start && x <= end )); then set_tab "$(( i + TAB_SCROLL_START ))"; return 0; fi
             done
         else
             go_back

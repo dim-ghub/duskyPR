@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Bibata cursor installer
 # ==============================================================================
 #  BIBATA CURSOR INSTALLER (FINAL OPTIMIZED)
 #  - Auto-detects LATEST version from GitHub

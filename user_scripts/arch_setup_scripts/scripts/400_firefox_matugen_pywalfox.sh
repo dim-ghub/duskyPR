@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# firefox setup for matugen themeing
 # -----------------------------------------------------------------------------
 # Script: 044_firefox_pywal.sh
 # Description: Setup Firefox, Pywalfox, and Matugen (Orchestra compatible)
@@ -110,7 +111,7 @@ main() {
    ╚═══════════════════════════════════════╝
 BANNER
     printf '%b\n' "${C_RESET}"
-    printf "%b[Action Required]%b: Open Firefox -> Extensions -> Pywalfox -> 'Fetch Pywal Colors'\n" "${C_WARN}" "${C_RESET}"
+    printf "%b[Action Required]%b: Open Firefox -> Install Extensions -> Pywalfox -> 'Fetch Pywal Colors'\n" "${C_WARN}" "${C_RESET}"
     printf "Press %b[ENTER]%b to launch Firefox..." "${C_GREEN}" "${C_RESET}"
     read -r || true
 

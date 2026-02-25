@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# MpV player configurator
 
 # ==============================================================================
 # Title:        Arch Linux MPV + UOSC + Thumbfast Auto-Config

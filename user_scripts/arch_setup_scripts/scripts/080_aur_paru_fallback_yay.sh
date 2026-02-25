@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Install AUR helper - Paru or YAY
 # -----------------------------------------------------------------------------
-# Script: 009_aur_helper_final_v3.sh
+# Script: 009_aur_helper_final_v4.sh
 # Description: The "Nuclear Option" AUR Helper Installer.
-#              1. Asks user for preference (Paru vs Yay).
+#              1. Asks user for preference (Paru vs Yay) OR accepts flags.
 #              2. DEFAULT: Attempts to build Paru (Rust).
 #              3. FAIL-SAFE: If Paru fails (or user chooses Yay), installs Yay.
 # Author: Arch Linux Systems Architect
@@ -196,6 +196,8 @@ try_install_yay() {
 
 # --- Main ---
 main() {
+    # Self-elevation preserving arguments
+    # CRITICAL: "$@" ensures flags are passed to the sudo instance
     if [[ $EUID -ne 0 ]]; then
         log_info "Privilege escalation required. Elevating..."
         exec sudo "$0" "$@"
@@ -209,21 +211,40 @@ main() {
     fi
     log_info "Target User: $r_user"
 
-    # --- Interactive Prompt ---
-    echo ""
-    log_info "Select AUR Helper to install:"
-    echo -e "  ${GREEN}[P]${NC}aru (Default) - Rust-based, feature-rich, recommended."
-    echo -e "  ${YELLOW}[y]${NC}ay            - Go-based, classic, reliable."
-    
-    # Read user input, default to 'P'
-    read -r -p "Enter selection [P/y]: " choice
-    choice=${choice:-P}
+    # --- Argument Parsing & Interactive Prompt ---
+    local choice=""
+
+    # 1. Parse Flags
+    for arg in "$@"; do
+        case "$arg" in
+            --yay)
+                choice="y"
+                log_info "Autonomous mode: Force Yay"
+                ;;
+            --paru)
+                choice="P"
+                log_info "Autonomous mode: Force Paru"
+                ;;
+        esac
+    done
+
+    # 2. Interactive Fallback (Only if no flags set)
+    if [[ -z "$choice" ]]; then
+        echo ""
+        log_info "Select AUR Helper to install:"
+        echo -e "  ${GREEN}[P]${NC}aru (Default) - Rust-based, feature-rich, recommended."
+        echo -e "  ${YELLOW}[y]${NC}ay            - Go-based, classic, reliable."
+        
+        # Read user input, default to 'P'
+        read -r -p "Enter selection [P/y]: " user_input
+        choice=${user_input:-P}
+    fi
 
     if [[ "$choice" =~ ^[yY] ]]; then
         # ---------------------------------------------------------
         # Path A: User specifically requested Yay
         # ---------------------------------------------------------
-        log_info "User selected: Yay"
+        log_info "Selection: Yay"
         if try_install_yay "$r_user"; then
             exit 0
         else
@@ -234,7 +255,7 @@ main() {
         # ---------------------------------------------------------
         # Path B: User selected Paru (or Default) -> Fallback to Yay
         # ---------------------------------------------------------
-        log_info "User selected: Paru (with fallback)"
+        log_info "Selection: Paru (with fallback)"
         
         if try_install_paru "$r_user"; then
             exit 0

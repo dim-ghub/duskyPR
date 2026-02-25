@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Configures Preload, a caching service for linux binaries to make system faster
 # -----------------------------------------------------------------------------
 # Script: 059_preload_config.sh
 # Description: Configures /etc/preload.conf optimized for High-RAM systems (32GB+).

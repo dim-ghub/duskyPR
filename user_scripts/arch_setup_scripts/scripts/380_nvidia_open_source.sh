@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Nvidia Drivers
 # ==============================================================================
 #  SCRIPT: 011_nvidia_open_source.sh
 #  DESCRIPTION: Interactive NVIDIA Open Source Driver Installer (Turing+)
@@ -93,7 +94,7 @@ main() {
     local valid_input=0
     
     while [[ $valid_input -eq 0 ]]; do
-        printf "%bDo you have an NVIDIA GPU (10-series to 60-series)?%b\n" "${YELLOW}" "${NC}"
+        printf "%bDo you have an NVIDIA GPU (11-series to 60-series)?%b\n" "${YELLOW}" "${NC}"
         read -r -p "Select [y]es, [n]o, or [c]heck/idk: " user_choice
 
         case "${user_choice,,}" in

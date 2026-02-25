@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
-# ==============================================================================
-#  Arch Linux Desktop Entry Path Fixer
-#  Environment: Hyprland / UWSM
-#  Description: Surgical update of 'Exec' paths in .desktop files to match $USER.
-#  Version: 2.1.0
-# ==============================================================================
+# Surgical update of 'Exec' paths in .desktop files to match $USER.
 
 # ------------------------------------------------------------------------------
 # 1. Configuration & Safety
@@ -58,7 +53,6 @@ readonly TARGET_FILES=(
     "airmon_ng.desktop"
     "asus_control.desktop"
     "btrfs_compression_stats.desktop"
-    "brightness_slider.desktop"
     "cache_purge.desktop"
     "clipboard_persistance.desktop"
     "dusky_appearances.desktop"
@@ -74,11 +68,12 @@ readonly TARGET_FILES=(
     "dusky_power.desktop"
     "dusky_waybars.desktop"
     "dusky_window_rules.desktop"
+    "dusky_site_blocker.desktop"
+    "dusky_sliders.desktop"
     "dusky_swaync_side.desktop"
     "dusky_service_toggle.desktop"
     "file_switcher.desktop"
     "google_image_search.desktop"
-    "hyprsunset_slider.desktop"
     "IO_Monitor.desktop"
     "iphone_vnc.desktop"
     "matugen.desktop"
@@ -102,7 +97,6 @@ readonly TARGET_FILES=(
     "sysbench_benchmark.desktop"
     "tailscale_setup.desktop"
     "tailscale_uninstall.desktop"
-    "volume_slider.desktop"
     "update_dusky.desktop"
     "warp.desktop"
     "wayclick.desktop"

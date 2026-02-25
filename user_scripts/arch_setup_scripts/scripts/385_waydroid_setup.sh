@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# waydroid setup
 # -----------------------------------------------------------------------------
 # Name:        Arch Linux Waydroid Setup (Hyprland/UWSM Optimized)
 # Description: Automates Waydroid installation, image setup, and optimization.

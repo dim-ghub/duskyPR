@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Parakeet GPU setup 
 # ==============================================================================
 # Title:        Parakeet ASR Installer & Setup
 # Description:  Automates the setup of NVIDIA Parakeet ASR on Arch Linux/Hyprland.

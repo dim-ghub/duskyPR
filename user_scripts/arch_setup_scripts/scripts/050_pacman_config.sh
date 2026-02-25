@@ -1,48 +1,140 @@
 #!/usr/bin/env bash
-# Atomic overwrite of /etc/pacman.conf for Arch/Hyprland systems
 # -----------------------------------------------------------------------------
-# Description: Atomic overwrite of /etc/pacman.conf for Arch/Hyprland systems
-# Author:      DevOps/System Architect
+# Description: True atomic overwrite and rollback of /etc/pacman.conf
 # Target:      /etc/pacman.conf
+# Ecosystem:   Arch Linux / Hyprland / UWSM
+#
+# Supported Flags:
+#   --auto, auto : Run in non-interactive mode. Bypasses user prompts.
+#                  Silently aborts if CachyOS is detected to protect the OS.
+#   --revert     : Bypasses generation. Atomically restores the pacman
+#                  configuration from /etc/pacman.conf.bak.
 # -----------------------------------------------------------------------------
 
 # --- Strict Error Handling ---
 set -euo pipefail
 
-# --- Presentation Constants ---
-readonly COLOR_INFO=$'\033[1;34m' # Bold Blue
-readonly COLOR_OK=$'\033[1;32m'   # Bold Green
-readonly COLOR_ERR=$'\033[1;31m'  # Bold Red
-readonly COLOR_NC=$'\033[0m'      # No Color
+# --- Presentation Constants (Bash 5+ ANSI Quoting) ---
+readonly COLOR_INFO=$'\e[1;34m'
+readonly COLOR_WARN=$'\e[1;33m'
+readonly COLOR_OK=$'\e[1;32m'
+readonly COLOR_ERR=$'\e[1;31m'
+readonly COLOR_NC=$'\e[0m'
 
 # --- Helper Functions ---
-log_info() { printf "${COLOR_INFO}[INFO]${COLOR_NC} %s\n" "$1"; }
-log_ok() { printf "${COLOR_OK}[OK]${COLOR_NC}   %s\n" "$1"; }
-log_err() { printf "${COLOR_ERR}[ERR]${COLOR_NC}  %s\n" "$1" >&2; }
+log_info() { printf "%s[INFO]%s %s\n" "${COLOR_INFO}" "${COLOR_NC}" "$1"; }
+log_warn() { printf "%s[WARN]%s %s\n" "${COLOR_WARN}" "${COLOR_NC}" "$1"; }
+log_ok()   { printf "%s[OK]%s   %s\n" "${COLOR_OK}" "${COLOR_NC}" "$1"; }
+log_err()  { printf "%s[ERR]%s  %s\n" "${COLOR_ERR}" "${COLOR_NC}" "$1" >&2; }
 
 # --- Cleanup Trap ---
-# Ensures terminal colors are reset even on failure
 cleanup() {
-  printf "${COLOR_NC}"
+    local exit_code=$?
+    
+    # Safely remove temporary deployment, backup, or restore files if they exist
+    [[ -n "${TMP_FILE:-}" && -f "${TMP_FILE}" ]] && rm -f "${TMP_FILE}"
+    [[ -n "${TMP_RESTORE:-}" && -f "${TMP_RESTORE}" ]] && rm -f "${TMP_RESTORE}"
+    [[ -n "${TMP_BACKUP:-}" && -f "${TMP_BACKUP}" ]] && rm -f "${TMP_BACKUP}"
+    
+    # Reset terminal colors on stdout and stderr, suppressing errors to preserve exit code
+    printf "%s" "${COLOR_NC}" 2>/dev/null || true
+    printf "%s" "${COLOR_NC}" >&2 2>/dev/null || true
+    
+    exit "${exit_code}"
 }
 trap cleanup EXIT
 
-# --- Root Privilege Check (Self-Elevation) ---
-# If not root, re-execute the script with sudo immediately.
+# --- 1. Root Privilege Check (Self-Elevation) ---
 if [[ "${EUID}" -ne 0 ]]; then
-  log_info "Privilege escalation required for /etc/pacman.conf."
-  log_info "Re-executing with sudo..."
-  exec sudo "$0" "$@"
+    log_info "Privilege escalation required for /etc/pacman.conf operations."
+    # Resolve absolute path to prevent execution failures under strict sudo policies
+    exec sudo "$(realpath "$0")" "$@"
 fi
 
-# --- Main Logic ---
+# --- 2. Argument Parsing ---
+AUTO_MODE=0
+REVERT_MODE=0
+
+for arg in "$@"; do
+    case "${arg}" in
+        --auto|auto) 
+            AUTO_MODE=1 
+            ;;
+        --revert) 
+            REVERT_MODE=1 
+            ;;
+    esac
+done
+
 TARGET_FILE="/etc/pacman.conf"
+TARGET_DIR="$(dirname "${TARGET_FILE}")"
+BACKUP_FILE="${TARGET_FILE}.bak"
 
-log_info "Preparing to overwrite ${TARGET_FILE}..."
+# --- 3. Rollback Logic (--revert) ---
+if (( REVERT_MODE == 1 )); then
+    log_info "Revert mode initiated."
+    if [[ ! -f "${BACKUP_FILE}" ]]; then
+        log_err "No backup found at ${BACKUP_FILE}. Cannot revert."
+        exit 1
+    fi
+    
+    log_info "Preparing atomic restoration from backup..."
+    TMP_RESTORE="$(mktemp "${TARGET_DIR}/.pacman.conf.restore.XXXXXX")"
+    
+    # Copy backup to temp file preserving all attributes
+    cp -a "${BACKUP_FILE}" "${TMP_RESTORE}"
+    
+    # Atomic rename
+    if mv "${TMP_RESTORE}" "${TARGET_FILE}"; then
+        log_ok "Successfully reverted ${TARGET_FILE} to previous state."
+        exit 0
+    else
+        log_err "Failed to atomically restore backup."
+        exit 1
+    fi
+fi
 
-# Writing content using a quoted Here-Document ('EOF')
-# This prevents variable expansion and handles special characters safely.
-cat >"${TARGET_FILE}" <<'EOF'
+# --- 4. CachyOS Safeguard ---
+if grep -qi "cachyos" /etc/os-release 2>/dev/null; then
+    if (( AUTO_MODE == 1 )); then
+        log_info "CachyOS detected and --auto flag passed. Aborting silently to preserve system integrity."
+        exit 0
+    else
+        log_warn "CachyOS detected!"
+        log_warn "Applying this standard Arch pacman.conf on CachyOS will severely break its custom packaging."
+        read -r -p "Are you absolutely sure you want to proceed? [y/N]: " response
+        if [[ ! "${response}" =~ ^[Yy]$ ]]; then
+            log_info "Aborting pacman configuration update."
+            exit 0
+        fi
+        log_warn "Proceeding at your own risk..."
+    fi
+fi
+
+# --- 5. Atomic Backup Current Configuration ---
+if [[ -f "${TARGET_FILE}" ]]; then
+    log_info "Creating atomic backup of current configuration..."
+    TMP_BACKUP="$(mktemp "${TARGET_DIR}/.pacman.conf.bak.XXXXXX")"
+    
+    # Copy preserving attributes to temp file
+    cp -a "${TARGET_FILE}" "${TMP_BACKUP}"
+    
+    # True atomic rename(2) for backup
+    if mv "${TMP_BACKUP}" "${BACKUP_FILE}"; then
+        log_ok "Backup safely saved to ${BACKUP_FILE}"
+    else
+        log_err "Failed to atomically create backup."
+        exit 1
+    fi
+fi
+
+# --- 6. Main Logic & True Atomic Write ---
+# Create temp file on the SAME filesystem to guarantee rename(2) atomicity
+TMP_FILE="$(mktemp "${TARGET_DIR}/.pacman.conf.XXXXXX")"
+
+log_info "Generating new configuration..."
+
+cat >"${TMP_FILE}" <<'EOF'
 # /etc/pacman.conf
 # See the pacman.conf(5) manpage for option and repository directives
 [options]
@@ -127,10 +219,15 @@ Include = /etc/pacman.d/mirrorlist
 #Server = file:///home/custompkgs
 EOF
 
-# --- Validation ---
-if [[ -f "${TARGET_FILE}" ]]; then
-  log_ok "Configuration written successfully to ${TARGET_FILE}."
+# Ensure correct ownership and permissions before moving
+chmod 644 "${TMP_FILE}"
+chown root:root "${TMP_FILE}"
+
+# --- 7. Validation and Deployment ---
+# Because TMP_FILE and TARGET_FILE are on the same filesystem, this is a true atomic rename(2)
+if mv "${TMP_FILE}" "${TARGET_FILE}"; then
+    log_ok "Configuration atomically written to ${TARGET_FILE}."
 else
-  log_err "Failed to write to ${TARGET_FILE}."
-  exit 1
+    log_err "Failed to move temporary file to ${TARGET_FILE}."
+    exit 1
 fi

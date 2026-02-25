@@ -244,7 +244,8 @@ cmd_list() {
     done < <(find "${PINS_DIR:?}" -maxdepth 1 -name '*.pin' -type f -printf '%T@\t%p\n' 2>/dev/null | sort -rn | cut -f2)
 
     # --- History Items (Zero-Fork Pipeline) ---
-    cliphist list 2>/dev/null | awk \
+    # OPTIMIZATION: LC_ALL=C ensures 'tolower' works correctly on non-English locales (Template Compliance)
+    cliphist list 2>/dev/null | LC_ALL=C awk \
         -v pin_count="$n" \
         -v icon_img="$ICON_IMG" \
         -v sep="$SEP" \
@@ -501,6 +502,7 @@ show_menu() {
     # SAFETY: Only kill the parent process if we are reasonably sure it is
     # the ephemeral kitty window we spawned.
     if [[ -n "${KITTY_PID:-}" || "${TERM:-}" == *kitty* ]]; then
+        sleep 0.10  # Allow wl-copy time to handshake with Wayland
         kill -15 $PPID 2>/dev/null || :
     fi
 }

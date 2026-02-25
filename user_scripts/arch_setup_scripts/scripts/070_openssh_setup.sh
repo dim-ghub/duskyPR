@@ -1,8 +1,5 @@
 #!/usr/bin/env bash
-# ==============================================================================
-# Arch Linux SSH Bootstrap v5.0 (Golden)
-# ------------------------------------------------------------------------------
-# Purpose: Auto-provision OpenSSH, configure all firewalls (firewalld/ufw/
+#          Auto sets up SSH
 #          iptables/nftables), smart IP/Tailscale detection, sshd.socket aware.
 # Target:  Arch Linux (latest), Wayland/Hyprland
 # Usage:   ./setup-ssh.sh [--auto|-a] [--help|-h]

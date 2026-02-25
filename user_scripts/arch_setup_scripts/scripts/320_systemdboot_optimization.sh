@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# configures systemd boot file
 # ==============================================================================
 #  Arch Linux Systemd-boot Optimizer (Hyprland/UWSM Context)
 #  Description: Configures systemd-boot timeout and kernel log levels.

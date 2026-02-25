@@ -1,184 +1,294 @@
 #!/usr/bin/env bash
 # -----------------------------------------------------------------------------
-# 🖼️ ROFI WALLPAPER SELECTOR (Robust V2)
+# 🖼️ Rofi Wallpaper Selector (Hardened, Optimized)
+# Target: Arch Linux / Hyprland / Dusky / UWSM
+#
 # Features:
-#   - V2 Cache (Forces fresh build to fix "no preview" issues)
-#   - Solid Placeholder (No font dependencies)
-#   - Explicit Icon Mode
+# • Fast thumbnail cache
+# • Favorites mode support
+# • Parallel thumbnail generation
+# • Matugen integration
+# • Safe locking (prevents multiple instances)
+# • Fully hardened bash (set -euo pipefail)
 # -----------------------------------------------------------------------------
 
-set -u
-set -o pipefail
+set -euo pipefail
 
-LOCK_FILE="/tmp/rofi-wallpaper-selector-lock"
+# -----------------------------------------------------------------------------
+# LOCKING (Prevent multiple instances)
+# -----------------------------------------------------------------------------
 
-# Lock check
-# Open the lock file. If it's busy (spamming), exit immediately.
-exec 201>"$LOCK_FILE"
-if ! flock -n 201; then
-	notify-send -a "Warning" "Please wait. Script is running." -u low -t 1000
-    exit 1
+readonly LOCK_FILE="/tmp/rofi-wallpaper-selector.lock"
+
+exec 200>"$LOCK_FILE"
+
+if ! flock -n 200; then
+  notify-send -a "Wallpaper Menu" \
+    "Wallpaper selector already running." \
+    -u low -t 1000
+  exit 0
 fi
 
-# --- CONFIGURATION ---
-readonly WALLPAPER_DIR="${HOME}/Pictures/wallpapers"
-readonly CACHE_DIR="${HOME}/.cache/rofi-wallpaper-thumbs"
-# CHANGED: v2 suffix forces a fresh cache rebuild
-readonly CACHE_FILE="${CACHE_DIR}/rofi_input_v2.cache"
-readonly PATH_MAP="${CACHE_DIR}/path_map.cache"
-readonly PLACEHOLDER_FILE="${CACHE_DIR}/_placeholder.png"
-readonly ROFI_THEME="${HOME}/.config/rofi/wallpaper.rasi"
-readonly RANDOM_THEME_SCRIPT="${HOME}/user_scripts/random_theme.sh"
+# -----------------------------------------------------------------------------
+# CONFIGURATION
+# -----------------------------------------------------------------------------
+
+readonly WALLPAPER_DIR="$HOME/Pictures/wallpapers"
+readonly CACHE_DIR="$HOME/.cache/rofi-wallpaper-thumbs"
+
+readonly CACHE_FILE="$CACHE_DIR/rofi_input.cache"
+readonly PATH_MAP="$CACHE_DIR/path_map.cache"
+readonly FAVORITES_FILE="$HOME/.config/dusky/settings/dusky_theme/favorites.list"
+
+readonly PLACEHOLDER="$CACHE_DIR/_placeholder.png"
+readonly ROFI_THEME="$HOME/.config/rofi/wallpaper.rasi"
+readonly RANDOM_THEME_SCRIPT="$HOME/user_scripts/random_theme.sh"
+
 readonly THUMB_SIZE=300
-
-# Parallel jobs: number of cores * 2
-readonly MAX_JOBS=$(($(nproc) * 2))
-
-# Dependencies
-for cmd in magick rofi swww notify-send; do
-    if ! command -v "$cmd" &>/dev/null; then
-        notify-send "Error" "Missing dependency: $cmd" -u critical
-        exit 1
-    fi
-done
+readonly MAX_JOBS="$(nproc)"
 
 mkdir -p "$CACHE_DIR"
 
-# --- FUNCTIONS ---
+# -----------------------------------------------------------------------------
+# DEPENDENCY CHECK
+# -----------------------------------------------------------------------------
+
+check_dependencies() {
+  local deps=(rofi swww magick notify-send awk grep)
+
+  for cmd in "${deps[@]}"; do
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+      notify-send -a "Wallpaper Menu" \
+        "Missing dependency: $cmd" \
+        -u critical
+      exit 1
+    fi
+  done
+}
+
+check_dependencies
+
+# -----------------------------------------------------------------------------
+# PLACEHOLDER THUMBNAIL
+# -----------------------------------------------------------------------------
 
 ensure_placeholder() {
-    # Simplified: Just a solid dark gray square. No text/fonts to fail.
-    if [[ ! -f "$PLACEHOLDER_FILE" ]]; then
-        magick -size "${THUMB_SIZE}x${THUMB_SIZE}" xc:"#333333" \
-            "$PLACEHOLDER_FILE" 2>/dev/null
-    fi
+  if [[ ! -f "$PLACEHOLDER" ]]; then
+    magick \
+      -size "${THUMB_SIZE}x${THUMB_SIZE}" \
+      xc:"#333333" \
+      "$PLACEHOLDER"
+  fi
 }
 
-# Worker function for parallel execution
-generate_single_thumb() {
-    local file="$1"
-    local filename="${file##*/}"
-    local thumb="${CACHE_DIR}/${filename}.png"
-    
-    # If thumb exists and is newer than the image, skip
-    [[ -f "$thumb" && "$thumb" -nt "$file" ]] && return 0
-    
-    # Generate thumb
-    nice -n 19 magick "$file" \
-        -strip \
-        -resize "${THUMB_SIZE}x${THUMB_SIZE}^" \
-        -gravity center \
-        -extent "${THUMB_SIZE}x${THUMB_SIZE}" \
-        "$thumb" 2>/dev/null
-}
-export -f generate_single_thumb
-export CACHE_DIR THUMB_SIZE
+ensure_placeholder
 
-# Clean up thumbs for wallpapers that were deleted
-cleanup_orphans() {
-    for thumb in "$CACHE_DIR"/*.png; do
-        filename=$(basename "$thumb")
-        [[ "$filename" == "_placeholder.png" ]] && continue
-        
-        if ! grep -q "^${filename%.png}" "$PATH_MAP" 2>/dev/null; then
-             rm -f "$thumb"
-        fi
-    done
+# -----------------------------------------------------------------------------
+# THUMBNAIL GENERATION
+# -----------------------------------------------------------------------------
+
+generate_thumb() {
+
+  local file="$1"
+  local rel safe thumb
+
+  rel="${file#"$WALLPAPER_DIR/"}"
+  safe="${rel//\//%2F}"
+  thumb="$CACHE_DIR/$safe.png"
+
+  if [[ -f "$thumb" && "$thumb" -nt "$file" ]]; then
+    return
+  fi
+
+  nice -n 19 magick "$file" \
+    -strip \
+    -thumbnail "${THUMB_SIZE}x${THUMB_SIZE}^" \
+    -gravity center \
+    -extent "${THUMB_SIZE}x${THUMB_SIZE}" \
+    "$thumb" 2>/dev/null || true
 }
 
-refresh_cache() {
-    notify-send -a "Wallpaper Menu" "Refreshing Wallpaper cache" "Please wait. CPU usage may be high during this process." -u low -t 1000
-    ensure_placeholder
-    
-    # 1. Update Thumbnails (Parallel)
-    find "$WALLPAPER_DIR" -type f \( \
-        -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" \
-        -o -iname "*.webp" -o -iname "*.gif" \
-    \) -print0 | xargs -0 -P "$MAX_JOBS" -I {} bash -c 'generate_single_thumb "$@"' _ {}
-    
-    # 2. Build Cache Files
-    : > "$CACHE_FILE"
-    : > "$PATH_MAP"
-    
-    while IFS= read -r -d '' file; do
-        filename=$(basename "$file")
-        thumb="${CACHE_DIR}/${filename}.png"
-        
-        if [[ -f "$thumb" ]]; then
-            icon="$thumb"
-        else
-            icon="$PLACEHOLDER_FILE"
-        fi
-        
-        # Format: Name \0 icon \x1f PathToIcon
-        printf '%s\0icon\x1f%s\n' "$filename" "$icon" >> "$CACHE_FILE"
-        
-        # Map: Name -> FullPath
-        printf '%s\t%s\n' "$filename" "$file" >> "$PATH_MAP"
-        
-    done < <(find "$WALLPAPER_DIR" -type f \( \
-        -iname "*.jpg" -o -iname "*.jpeg" -o -iname "*.png" \
-        -o -iname "*.webp" -o -iname "*.gif" \
-    \) -print0 | sort -z)
-    
-    ( cleanup_orphans ) 201>&- & disown
+export WALLPAPER_DIR CACHE_DIR THUMB_SIZE
+export -f generate_thumb
+
+# -----------------------------------------------------------------------------
+# BUILD MAIN CACHE
+# -----------------------------------------------------------------------------
+
+build_cache() {
+
+  notify-send -a "Wallpaper Menu" \
+    "Building wallpaper cache..." \
+    -u low -t 1000
+
+  mapfile -d '' files < <(
+    find "$WALLPAPER_DIR" -type f \
+      \( -iname "*.jpg" \
+      -o -iname "*.jpeg" \
+      -o -iname "*.png" \
+      -o -iname "*.webp" \
+      -o -iname "*.gif" \) \
+      -print0
+  )
+
+  # Parallel thumbnail generation
+  printf '%s\0' "${files[@]}" |
+    xargs -0 -P "$MAX_JOBS" -I{} \
+      bash -c 'generate_thumb "$@"' _ {}
+
+  : >"$CACHE_FILE"
+  : >"$PATH_MAP"
+
+  local file rel safe thumb
+
+  for file in "${files[@]}"; do
+
+    rel="${file#"$WALLPAPER_DIR/"}"
+    safe="${rel//\//%2F}"
+    thumb="$CACHE_DIR/$safe.png"
+
+    [[ -f "$thumb" ]] || thumb="$PLACEHOLDER"
+
+    printf '%s\0icon\x1f%s\n' \
+      "$rel" "$thumb" >>"$CACHE_FILE"
+
+    printf '%s\t%s\n' \
+      "$rel" "$file" >>"$PATH_MAP"
+
+  done
 }
 
-get_matugen_flags() {
-    if [[ -f "$RANDOM_THEME_SCRIPT" ]]; then
-        grep -oP 'matugen \K.*(?= image)' "$RANDOM_THEME_SCRIPT" | head -n 1
-    else
-        echo ""
-    fi
+# -----------------------------------------------------------------------------
+# BUILD FAVORITES CACHE
+# -----------------------------------------------------------------------------
+
+build_favorites_cache() {
+
+  if [[ ! -f "$FAVORITES_FILE" ]]; then
+    notify-send -a "Wallpaper Menu" \
+      "No favorites found." \
+      -u low -t 1500
+    return 1
+  fi
+
+  local fav_cache="$CACHE_DIR/rofi_input_fav.cache"
+  : >"$fav_cache"
+
+  local fav thumb
+
+  while read -r fav; do
+
+    [[ -z "$fav" ]] && continue
+
+    thumb="$CACHE_DIR/${fav//\//%2F}.png"
+
+    [[ -f "$thumb" ]] || thumb="$PLACEHOLDER"
+
+    printf '%s\0icon\x1f%s\n' \
+      "$fav" "$thumb" >>"$fav_cache"
+
+  done <"$FAVORITES_FILE"
+
+  echo "$fav_cache"
 }
+
+# -----------------------------------------------------------------------------
+# RESOLVE WALLPAPER PATH
+# -----------------------------------------------------------------------------
 
 resolve_path() {
-    local name="$1"
-    awk -F'\t' -v t="$name" '$1 == t {print $2; exit}' "$PATH_MAP"
+
+  local name="$1"
+  local path
+
+  path=$(awk -F'\t' -v t="$name" '$1 == t {print $2; exit}' "$PATH_MAP")
+
+  if [[ -n "$path" ]]; then
+    echo "$path"
+    return
+  fi
+
+  path="$WALLPAPER_DIR/$name"
+
+  [[ -f "$path" ]] && echo "$path"
 }
 
-# --- MAIN LOGIC ---
+# -----------------------------------------------------------------------------
+# MATUGEN FLAGS EXTRACTION
+# -----------------------------------------------------------------------------
 
-# Force refresh if v2 cache is missing
-if [[ ! -s "$CACHE_FILE" ]] || [[ "$WALLPAPER_DIR" -nt "$CACHE_FILE" ]]; then
-    refresh_cache
-fi
+get_matugen_flags() {
 
-# Launch Rofi
-# Added -show-icons explicitly to be safe
-selection=$(rofi \
-    -dmenu \
-    -i \
-    -show-icons \
-    -theme "$ROFI_THEME" \
-    -p "Wallpaper" \
-    < "$CACHE_FILE"
-)
+  if [[ -f "$RANDOM_THEME_SCRIPT" ]]; then
 
-exit_code=$?
+    grep -oP 'matugen \K.*(?= image)' \
+      "$RANDOM_THEME_SCRIPT" |
+      head -n 1 || echo "--mode dark"
 
-if [[ $exit_code -ne 0 ]]; then
-    exit 0
-fi
+  else
 
-if [[ -n "$selection" ]]; then
-    full_path=$(resolve_path "$selection")
-    
-    if [[ -n "$full_path" && -f "$full_path" ]]; then
-        current_flags=$(get_matugen_flags)
-        [[ -z "$current_flags" ]] && current_flags="--mode dark"
+    echo "--mode dark"
 
-        echo "Applying: $full_path"
-        
-        swww img "$full_path" \
-            --transition-type grow \
-            --transition-duration 2 \
-            --transition-fps 60 201>&- &
-            
-        setsid uwsm-app -- matugen $current_flags image "$full_path" 201>&- &
-    else
-        # If path resolution failed, cache might be corrupted. Delete it.
-        rm -f "$CACHE_FILE"
-        notify-send "Error" "Could not resolve path. Cache cleared." -u critical
-    fi
-fi
+  fi
+}
+
+# -----------------------------------------------------------------------------
+# MAIN EXECUTION
+# -----------------------------------------------------------------------------
+
+main() {
+
+  if [[ ! -f "$CACHE_FILE" ]]; then
+    build_cache
+  fi
+
+  local input="$CACHE_FILE"
+
+  if [[ "${1:-}" == "fav" ]]; then
+    input="$(build_favorites_cache)" || exit 0
+  fi
+
+  local selection
+
+  selection=$(
+    rofi \
+      -dmenu \
+      -i \
+      -show-icons \
+      -theme "$ROFI_THEME" \
+      -p "Wallpaper" \
+      <"$input"
+  ) || exit 0
+
+  [[ -z "$selection" ]] && exit 0
+
+  local full_path
+  full_path="$(resolve_path "$selection")"
+
+  if [[ -z "$full_path" ]]; then
+    notify-send -a "Wallpaper Menu" \
+      "Failed to resolve wallpaper path." \
+      -u critical
+    exit 1
+  fi
+
+  local flags
+  flags="$(get_matugen_flags)"
+
+  # Set wallpaper
+  swww img "$full_path" \
+    --transition-type grow \
+    --transition-duration 2 \
+    --transition-fps 60 \
+    >/dev/null 2>&1 &
+  disown
+
+  # Apply theme
+  setsid uwsm-app -- matugen $flags image "$full_path" \
+    >/dev/null 2>&1 &
+  disown
+}
+
+main "$@"
+
+exit 0

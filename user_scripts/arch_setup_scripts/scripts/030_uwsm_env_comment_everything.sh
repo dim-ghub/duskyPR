@@ -1,10 +1,7 @@
 #!/usr/bin/env bash
-# -----------------------------------------------------------------------------
-# Script: clean-uwsm-config.sh
-# Description: Automates the cleanup of UWSM hardware/GPU configs.
-#              Hardened for Arch Linux/Hyprland ecosystems.
-# -----------------------------------------------------------------------------
-
+# Comments all GPU related environment variables in uwsm file
+#
+#
 # --- 1. Strict Mode ---
 set -euo pipefail
 IFS=$'\n\t'

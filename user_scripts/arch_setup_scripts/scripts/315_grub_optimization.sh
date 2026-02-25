@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Configures Grub flags in the grub file
 # ==============================================================================
 #  Arch Linux GRUB Optimizer (Hyprland/UWSM Context)
 #  Description: Interactively configures GRUB kernel parameters for performance.

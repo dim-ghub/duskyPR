@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Configures DNS
 # -----------------------------------------------------------------------------
 # ARCH LINUX SYSTEMD-RESOLVED CONFIGURATOR
 # Context: Hyprland / UWSM / Arch

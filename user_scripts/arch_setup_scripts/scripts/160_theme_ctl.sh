@@ -1,11 +1,11 @@
-#
-# 
-# 
-# this is optimized for setup orchestra to run matugen in teh background if swaync isn't running. 
-#
-# 
-# 
 #!/usr/bin/env bash
+# THEME CONTROLLER (theme_ctl)
+#
+#
+# this is optimized for setup orchestra to run matugen in teh background if swaync isn't running.
+#
+#
+#
 # ==============================================================================
 # THEME CONTROLLER (theme_ctl)
 # ==============================================================================

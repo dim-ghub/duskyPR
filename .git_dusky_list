@@ -2,6 +2,7 @@
 .config/btop/btop.conf
 .config/cava/config
 .config/dusky/version
+.config/dusky_nvim/
 .config/fastfetch/
 .config/firefox_extention_export_data_backup/
 .config/fontconfig/
@@ -21,7 +22,6 @@
 .config/matugen/templates/
 .config/matugen/presets/
 .config/mpv/mpv.conf
-.config/nvim/
 .config/pacman/makepkg.conf
 .config/pacseek/
 .config/swaync/
@@ -63,6 +63,7 @@
 .local/share/applications/
 .local/share/rofi_cliphist_and_errands_backup/errands/data.json
 .local/share/rofi_cliphist_and_errands_backup/rofi-cliphist/
+Documents/dusky_backups/
 Documents/pensive/Adobe/
 Documents/pensive/linux/
 Documents/pensive/templates/
@@ -74,7 +75,6 @@ Documents/pensive/.obsidian/appearance.json
 Documents/pensive/.obsidian/snippets/
 Pictures/wallpapers/dusk_default.jpg
 Pictures/readme_assets/
-fonts_and_old_stuff/
 user_scripts/
 README.md
 LICENSE

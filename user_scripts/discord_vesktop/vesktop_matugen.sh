@@ -138,8 +138,12 @@ read -r -d '' VESKTOP_BLOCK << 'TOML' || true
 input_path  = '~/.config/matugen/templates/midnight-discord.css'
 output_path = '~/.config/matugen/generated/midnight-discord.css'
 post_hook   = '''
-mkdir -p -- "$HOME/.config/vesktop/themes/"
-ln -nfs -- "$HOME/.config/matugen/generated/midnight-discord.css" "$HOME/.config/vesktop/themes/midnight-discord.css"
+bash -c '
+{
+  mkdir -p "$HOME/.config/vesktop/themes/"
+  ln -nfs "$HOME/.config/matugen/generated/midnight-discord.css" "$HOME/.config/vesktop/themes/midnight-discord.css"
+} >/dev/null 2>&1 </dev/null & disown
+'
 '''
 TOML
 readonly VESKTOP_BLOCK
