@@ -77,6 +77,7 @@ declare -A CUSTOM_SCRIPT_PATHS=(
     ["update_checker.sh"]="user_scripts/update_dusky/update_checker/update_checker.sh"
     ["cc_restart.sh"]="user_scripts/dusky_system/reload_cc/cc_restart.sh"
     ["dusky_service_manager.sh"]="user_scripts/services/dusky_service_manager.sh"
+    ["append_defaults_keybinds_edit_here.sh"]="user_scripts/misc_extra/append_defaults_keybinds_edit_here.sh"
 )
 
 # ------------------------------------------------------------------------------
@@ -185,6 +186,7 @@ declare -ra UPDATE_SEQUENCE=(
     "S | package_installation.sh"
     "U | cc_restart.sh --quiet"
     "S | dusky_service_manager.sh"
+    "U | append_defaults_keybinds_edit_here.sh"
 )
 
 # ==============================================================================
