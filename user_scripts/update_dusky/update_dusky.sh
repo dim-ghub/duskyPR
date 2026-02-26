@@ -117,7 +117,7 @@ declare -ra UPDATE_SEQUENCE=(
 #    "U | 160_theme_ctl.sh set --defaults"
 #    "U | 165_qtct_config.sh"
     "U | 170_waypaper_config_reset.sh"
-    "U | 175_animation_default.sh"
+#    "U | 175_animation_default.sh"
 #    "S | 180_udev_usb_notify.sh"
 #    "U | 185_terminal_default.sh"
 #    "S | 190_dusk_fstab.sh"
