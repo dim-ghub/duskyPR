@@ -91,11 +91,15 @@ pages:
         title: Active Profile
         description: Select performance mode
         icon: power-profile-balanced-symbolic
-        key: power_profile_state
+        value_command: "tlpctl get"
         options:
         - Balanced
         - Performance
         - Power Saver
+        options_map:
+          "balanced": "Balanced"
+          "performance": "Performance"
+          "power saver": "Power Saver"
       on_change:
         Balanced:
           type: exec
@@ -106,7 +110,6 @@ pages:
         Power Saver:
           type: exec
           command: tlpctl power-saver && notify-send 'Power Profile' 'Switched to Power Saver'
-
   - type: section
     properties:
       title: Quick Controls
@@ -634,11 +637,15 @@ pages:
         title: Active Profile
         description: Select performance mode
         icon: power-profile-balanced-symbolic
-        key: power_profile_state
+        value_command: "tlpctl get"
         options:
         - Balanced
         - Performance
         - Power Saver
+        options_map:
+          "balanced": "Balanced"
+          "performance": "Performance"
+          "power saver": "Power Saver"
       on_change:
         Balanced:
           type: exec
