@@ -92,6 +92,7 @@ pages:
         description: Select performance mode
         icon: power-profile-balanced-symbolic
         value_command: "tlpctl get"
+        interval: 2
         options:
         - Balanced
         - Performance
@@ -99,7 +100,7 @@ pages:
         options_map:
           "balanced": "Balanced"
           "performance": "Performance"
-          "power saver": "Power Saver"
+          "power-saver": "Power Saver"
       on_change:
         Balanced:
           type: exec
@@ -638,6 +639,7 @@ pages:
         description: Select performance mode
         icon: power-profile-balanced-symbolic
         value_command: "tlpctl get"
+        interval: 2
         options:
         - Balanced
         - Performance
@@ -645,7 +647,7 @@ pages:
         options_map:
           "balanced": "Balanced"
           "performance": "Performance"
-          "power saver": "Power Saver"
+          "power-saver": "Power Saver"
       on_change:
         Balanced:
           type: exec

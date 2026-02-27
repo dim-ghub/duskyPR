@@ -1292,7 +1292,9 @@ class SelectionRow(DynamicIconMixin, Adw.ComboRow):
             res = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=SUBPROCESS_TIMEOUT_SHORT)
             if res.returncode == 0:
                 value = res.stdout.strip()
-                if value: GLib.idle_add(self._update_selection_ui, value)
+                value_lower = value.lower()
+                mapped_val = self.options_map.get(value_lower, value)
+                if mapped_val: GLib.idle_add(self._update_selection_ui, mapped_val)
         except Exception: pass
 
     def _update_selection_ui(self, value: str) -> bool:
