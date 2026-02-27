@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import json
 import urllib.request
 
@@ -21,19 +22,51 @@ def get_location_data():
         return None
 
 
+def get_country_from_coords(lat, lon):
+    try:
+        url = f"https://nominatim.openstreetmap.org/reverse?lat={lat}&lon={lon}&format=json"
+        req = urllib.request.Request(url, headers={"User-Agent": "waybar-weather/1.0"})
+        with urllib.request.urlopen(req, timeout=5) as response:
+            data = json.loads(response.read().decode())
+            address = data.get("address", {})
+            return address.get("country_code", "").upper(), address.get(
+                "city", address.get("town", address.get("village", ""))
+            )
+    except Exception:
+        return "", ""
+
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--lat", type=float, help="Latitude override")
+parser.add_argument("--lon", type=float, help="Longitude override")
+parser.add_argument("-c", "--celsius", action="store_true", help="Use Celsius")
+parser.add_argument("-f", "--fahrenheit", action="store_true", help="Use Fahrenheit")
+args = parser.parse_args()
+
+
 IMPERIAL_COUNTRIES = {"US", "LR", "MM"}
 
-location = get_location_data()
-if location and location["lat"] is not None and location["lon"] is not None:
-    unit = "imperial" if location["countryCode"] in IMPERIAL_COUNTRIES else "metric"
-    city = location["city"]
-    lat = location["lat"]
-    lon = location["lon"]
-else:
+if args.celsius:
     unit = "metric"
-    city = ""
-    lat = 0
-    lon = 0
+elif args.fahrenheit:
+    unit = "imperial"
+elif args.lat is not None and args.lon is not None:
+    lat = args.lat
+    lon = args.lon
+    country_code, city = get_country_from_coords(lat, lon)
+    unit = "imperial" if country_code in IMPERIAL_COUNTRIES else "metric"
+else:
+    location = get_location_data()
+    if location and location["lat"] is not None and location["lon"] is not None:
+        unit = "imperial" if location["countryCode"] in IMPERIAL_COUNTRIES else "metric"
+        city = location["city"]
+        lat = location["lat"]
+        lon = location["lon"]
+    else:
+        unit = "metric"
+        city = ""
+        lat = 0
+        lon = 0
 
 
 ########################################## MAIN ##################################
