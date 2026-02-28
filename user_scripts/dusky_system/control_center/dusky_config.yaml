@@ -1909,7 +1909,7 @@ pages:
         title: Dusky TTS (Kokoro)
         description: Supports Nvidia, AMD, CPU
         icon: audio-speakers-symbolic
-        button_text: "Setup"
+        button_text: "Install"
       on_press:
         type: exec
         command: kitty --class kokoro_installer.sh --hold sh -c "$HOME/user_scripts/tts_stt/dusky_kokoro/kokoro_installer.sh"
@@ -1925,10 +1925,10 @@ pages:
         title: Dusky STT (Parakeet)
         description: Supports Nvidia, AMD, CPU
         icon: microphone-sensitivity-high-symbolic
-        button_text: "Record"
+        button_text: "Install"
       on_press:
         type: exec
-        command: kitty --class 425_parakeet_gpu_setup.sh --hold sh -c "$HOME/user_scripts/arch_setup_scripts/scripts/425_parakeet_gpu_setup.sh"
+        command: kitty --class parakeet_installer.sh --hold sh -c "$HOME/user_scripts/tts_stt/dusky_parakeet/parakeet_installer.sh"
         terminal: false
 
 - id: setup_features
