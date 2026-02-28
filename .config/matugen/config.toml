@@ -12,9 +12,6 @@ output_path = "~/.config/matugen/generated/master-dump.jsonl"
 [templates.gtk3]
 input_path  = '~/.config/matugen/templates/gtk-colors.css'
 output_path = '~/.config/matugen/generated/gtk-3.css'
-post_hook   = '''
-bash -c '{ gsettings set org.gnome.desktop.interface icon-theme "Fluent-teal-dark"; } >/dev/null 2>&1 </dev/null & disown'
-'''
 
 [templates.gtk4]
 input_path  = '~/.config/matugen/templates/gtk-colors.css'
@@ -37,6 +34,31 @@ output_path = '~/.config/matugen/generated/qt5ct-colors.conf'
 [templates.qt6ct]
 input_path  = '~/.config/matugen/templates/qtct-colors.conf'
 output_path = '~/.config/matugen/generated/qt6ct-colors.conf'
+
+[templates.papirus]
+input_path  = '~/.config/matugen/templates/papirus'
+output_path = '~/.config/matugen/generated/papirus'
+post_hook   = '''
+bash -c '
+{
+  COLOR_FILE="$HOME/.config/matugen/generated/papirus"
+  [[ -f "$COLOR_FILE" ]] || exit 0
+  read -r TARGET < "$COLOR_FILE"
+  TARGET=${TARGET//#}
+  TARGET=${TARGET// }
+  [[ ${#TARGET} -ge 6 ]] || exit 0
+  TARGET=${TARGET:0:6}
+  closest=$(python3 -c "
+  import sys
+  colors = {\"adwaita\": \"93c0ea\", \"black\": \"4f4f4f\", \"blue\": \"5294e2\", \"bluegrey\": \"607d8b\", \"breeze\": \"57b8ec\", \"brown\": \"ae8e6c\", \"carmine\": \"a30002\", \"cyan\": \"00bcd4\", \"darkcyan\": \"45abb7\", \"deeporange\": \"eb6637\", \"green\": \"87b158\", \"grey\": \"8e8e8f\", \"indigo\": \"5c6bc0\", \"magenta\": \"ca71df\", \"nordic\": \"81a1c1\", \"orange\": \"ee923a\", \"palebrown\": \"d1bfae\", \"paleorange\": \"eeca8f\", \"pink\": \"f06292\", \"red\": \"e25252\", \"teal\": \"16a085\", \"violet\": \"7e57c2\", \"white\": \"e4e4e4\", \"yaru\": \"676767\", \"yellow\": \"f9bd30\"}
+  target = \"$TARGET\"
+  tr, tg, tb = int(target[0:2], 16), int(target[2:4], 16), int(target[4:6], 16)
+  print(min(colors.keys(), key=lambda name: (int(colors[name][0:2], 16)-tr)**2 + (int(colors[name][2:4], 16)-tg)**2 + (int(colors[name][4:6], 16)-tb)**2))
+  ")
+  [[ -n "$closest" ]] && papirus-folders -C "$closest"
+} >/dev/null 2>&1 </dev/null & disown
+'
+'''
 
 # -----------------------------------------------------------------------------
 # System Components (Wayland, Bars, Notifications)
