@@ -1922,18 +1922,8 @@ pages:
     items:
     - type: button
       properties:
-        title: Faster Whisper (CPU)
-        description: Standard dictation
-        icon: microphone-sensitivity-high-symbolic
-        button_text: "Record"
-      on_press:
-        type: exec
-        command: kitty --class 345_faster_whisper_cpu.sh --hold sh -c "$HOME/user_scripts/tts_stt/dusky_kokoro/345_faster_whisper_cpu.sh"
-        terminal: false
-    - type: button
-      properties:
-        title: Parakeet (GPU)
-        description: High performance dictation
+        title: Dusky STT (Parakeet)
+        description: Supports Nvidia, AMD, CPU
         icon: microphone-sensitivity-high-symbolic
         button_text: "Record"
       on_press:
